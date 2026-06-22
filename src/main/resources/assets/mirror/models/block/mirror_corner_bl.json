@@ -1,0 +1,44 @@
+{
+  "comment": "Inner-corner frame piece for L-shaped merges (two edges connected, diagonal empty).",
+  "textures": {
+    "frame": "minecraft:block/oak_planks",
+    "particle": "minecraft:block/oak_planks"
+  },
+  "elements": [
+    {
+      "from": [
+        0,
+        0,
+        13
+      ],
+      "to": [
+        2,
+        2,
+        16
+      ],
+      "faces": {
+        "north": {
+          "texture": "#frame"
+        },
+        "south": {
+          "texture": "#frame",
+          "cullface": "south"
+        },
+        "east": {
+          "texture": "#frame"
+        },
+        "west": {
+          "texture": "#frame",
+          "cullface": "west"
+        },
+        "up": {
+          "texture": "#frame"
+        },
+        "down": {
+          "texture": "#frame",
+          "cullface": "down"
+        }
+      }
+    }
+  ]
+}

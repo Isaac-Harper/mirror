@@ -1,0 +1,21 @@
+# Gradle / build
+.gradle/
+build/
+out/
+run/
+
+# Loom
+.fabric/
+remappedSrc/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.settings/
+.classpath
+.project
+bin/
+
+# Claude Code workspace (not part of the mod)
+.claude/

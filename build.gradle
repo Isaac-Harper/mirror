@@ -1,0 +1,89 @@
+plugins {
+    // Minecraft 26.1 is non-obfuscated; this is the new no-remap Loom plugin.
+    id 'net.fabricmc.fabric-loom' version '1.17.11'
+    // Uploads releases to Modrinth (see the publishMods block at the bottom).
+    id 'me.modmuss50.mod-publish-plugin' version '1.1.0'
+}
+
+version = project.mod_version
+group = project.maven_group
+
+base {
+    archivesName = project.archives_base_name
+}
+
+loom {
+    runs {
+        // `./gradlew runTestWorld` boots the client straight into the prebuilt mirror demo world
+        // (run/saves/mirror-demo: a plaza of labelled mirror stations). Built by demo_world.py.
+        testWorld {
+            client()
+            configName = "Mirror Demo World"
+            programArgs("--quickPlaySingleplayer", "mirror-demo")
+        }
+    }
+}
+
+repositories {
+    mavenCentral()
+    maven { url "https://maven.terraformersmc.com/releases" } // Mod Menu
+    maven { url "https://maven.shedaniel.me/" }               // Cloth Config
+}
+
+dependencies {
+    // 26.1 is non-obfuscated: no `mappings` line; mod deps use plain `implementation`.
+    minecraft "com.mojang:minecraft:${project.minecraft_version}"
+    implementation "net.fabricmc:fabric-loader:${project.loader_version}"
+    implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
+    // WorldRenderEvents (the client render hook) lives in this module. The fabric-api bundle
+    // exposes its modules only at runtime under plain `implementation`, so depend on it for compile.
+    implementation "net.fabricmc.fabric-api:fabric-rendering-v1:${project.rendering_version}"
+    // Mod Menu (config button) + Cloth Config (the settings screen). Optional at runtime - the mod's
+    // core works without them; only the in-game settings GUI needs them (see MirrorModMenu).
+    implementation "com.terraformersmc:modmenu:${project.modmenu_version}"
+    implementation "me.shedaniel.cloth:cloth-config-fabric:${project.cloth_version}"
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(25) // 26.1 requires Java 25
+    }
+    withSourcesJar()
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release = 25
+}
+
+processResources {
+    inputs.property "version", project.version
+    filesMatching("fabric.mod.json") {
+        expand "version": project.version
+    }
+}
+
+// Modrinth publishing via the Mod Publish Plugin, using the same MODRINTH_TOKEN env var as the other mods.
+// Without that token (local runs) it dry-runs: the config is validated and the jar built, nothing uploads.
+// The Modrinth listing must exist first; put its id in gradle.properties as `modrinth_id`, then run
+// `./gradlew publishMods` with MODRINTH_TOKEN set.
+publishMods {
+    file = tasks.jar.archiveFile
+    version = project.version.toString()
+    type = me.modmuss50.mpp.ReleaseType.STABLE
+    displayName = "Mirror ${project.version}"
+    modLoaders.add("fabric")
+    changelog = "See the project page for the change list."
+    dryRun = !providers.environmentVariable("MODRINTH_TOKEN").isPresent()
+
+    if (project.findProperty("modrinth_id")) {
+        modrinth {
+            projectId = project.modrinth_id
+            accessToken = providers.environmentVariable("MODRINTH_TOKEN")
+            minecraftVersions.add(project.minecraft_version)
+            requires("fabric-api")
+            optional("modmenu")
+            optional("cloth-config")
+        }
+    }
+}
