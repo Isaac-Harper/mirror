@@ -19,3 +19,6 @@ bin/
 
 # Claude Code workspace (not part of the mod)
 .claude/
+
+# Secrets (never commit)
+.env
