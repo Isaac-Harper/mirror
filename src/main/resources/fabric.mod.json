@@ -3,7 +3,7 @@
   "id": "mirror",
   "version": "${version}",
   "name": "Mirror",
-  "description": "Native planar-reflection mirror blocks for Minecraft 26.1 (Fabric). Core has no hard dependencies; optional in-game settings via Mod Menu + Cloth Config.",
+  "description": "Native planar-reflection mirror blocks for Minecraft 26.2 (Fabric). Core has no hard dependencies; optional in-game settings via Mod Menu + Cloth Config.",
   "authors": ["Isaac Harper"],
   "license": "MIT",
   "environment": "*",
@@ -16,8 +16,8 @@
     { "config": "mirror.client.mixins.json", "environment": "client" }
   ],
   "depends": {
-    "fabricloader": ">=0.18.4",
-    "minecraft": "~26.1",
+    "fabricloader": ">=0.19.0",
+    "minecraft": "~26.2",
     "java": ">=25",
     "fabric-api": "*"
   },

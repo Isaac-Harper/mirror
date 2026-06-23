@@ -1,5 +1,5 @@
 plugins {
-    // Minecraft 26.1 is non-obfuscated; this is the new no-remap Loom plugin.
+    // Minecraft 26.2 is non-obfuscated; this is the no-remap Loom plugin.
     id 'net.fabricmc.fabric-loom' version '1.17.11'
     // Uploads releases to Modrinth (see the publishMods block at the bottom).
     id 'me.modmuss50.mod-publish-plugin' version '1.1.0'
@@ -31,22 +31,25 @@ repositories {
 }
 
 dependencies {
-    // 26.1 is non-obfuscated: no `mappings` line; mod deps use plain `implementation`.
+    // 26.2 is non-obfuscated: no `mappings` line; mod deps use plain `implementation`.
     minecraft "com.mojang:minecraft:${project.minecraft_version}"
     implementation "net.fabricmc:fabric-loader:${project.loader_version}"
     implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
     // WorldRenderEvents (the client render hook) lives in this module. The fabric-api bundle
     // exposes its modules only at runtime under plain `implementation`, so depend on it for compile.
     implementation "net.fabricmc.fabric-api:fabric-rendering-v1:${project.rendering_version}"
-    // Mod Menu (config button) + Cloth Config (the settings screen). Optional at runtime - the mod's
-    // core works without them; only the in-game settings GUI needs them (see MirrorModMenu).
-    implementation "com.terraformersmc:modmenu:${project.modmenu_version}"
-    implementation "me.shedaniel.cloth:cloth-config-fabric:${project.cloth_version}"
+    // Mod Menu (config button) + Cloth Config (the settings screen) for MirrorModMenu. compileOnly, not
+    // implementation: the only Mod Menu build for 26.2 (19.0.0-alpha.1) crashes on the title screen
+    // (it calls I18n.exists, removed in 26.2), so we don't load it in the dev runtime. The integration
+    // still compiles and ships; fabric.mod.json lists both as optional `suggests`. Switch back to
+    // `implementation` once a working Mod Menu 26.2 build exists, to test the settings screen in dev.
+    compileOnly "com.terraformersmc:modmenu:${project.modmenu_version}"
+    compileOnly "me.shedaniel.cloth:cloth-config-fabric:${project.cloth_version}"
 }
 
 java {
     toolchain {
-        languageVersion = JavaLanguageVersion.of(25) // 26.1 requires Java 25
+        languageVersion = JavaLanguageVersion.of(25) // 26.2 requires Java 25
     }
     withSourcesJar()
 }

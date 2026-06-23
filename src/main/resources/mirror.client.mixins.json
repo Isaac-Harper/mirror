@@ -5,11 +5,16 @@
   "compatibilityLevel": "JAVA_25",
   "client": [
     "CameraInvoker",
+    "FrustumMixin",
     "GameRendererAccessor",
     "GameRendererMixin",
-    "LevelRendererAccessor",
+    "GameRendererTargetMixin",
+    "LevelExtractorAccessor",
     "LevelRendererCloudMixin",
-    "MinecraftMixin"
+    "LevelRendererMainPassMixin",
+    "SectionOcclusionGraphMixin",
+    "SkyRendererMixin",
+    "ViewAreaMixin"
   ],
   "injectors": {
     "defaultRequire": 1

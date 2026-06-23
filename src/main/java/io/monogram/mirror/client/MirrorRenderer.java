@@ -1,9 +1,12 @@
 package io.monogram.mirror.client;
 
+import com.mojang.blaze3d.GpuFormat;
+import com.mojang.blaze3d.PrimitiveTopology;
 import com.mojang.blaze3d.ProjectionType;
 import com.mojang.blaze3d.buffers.GpuBuffer;
 import com.mojang.blaze3d.buffers.GpuBufferSlice;
 import com.mojang.blaze3d.buffers.Std140Builder;
+import com.mojang.blaze3d.pipeline.BindGroupLayout;
 import com.mojang.blaze3d.pipeline.BlendFunction;
 import com.mojang.blaze3d.pipeline.ColorTargetState;
 import com.mojang.blaze3d.pipeline.DepthStencilState;
@@ -17,14 +20,11 @@ import com.mojang.blaze3d.systems.RenderPass;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.textures.FilterMode;
 import com.mojang.blaze3d.textures.GpuTextureView;
-import com.mojang.blaze3d.vertex.DefaultVertexFormat;
 import com.mojang.blaze3d.vertex.PoseStack;
-import com.mojang.blaze3d.vertex.VertexFormat;
 import io.monogram.mirror.MirrorBlock;
 import io.monogram.mirror.client.mixin.CameraInvoker;
 import io.monogram.mirror.client.mixin.GameRendererAccessor;
-import io.monogram.mirror.client.mixin.LevelRendererAccessor;
-import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderContext;
+import io.monogram.mirror.client.mixin.LevelExtractorAccessor;
 import net.minecraft.client.Camera;
 import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.Minecraft;
@@ -44,6 +44,7 @@ import net.minecraft.world.phys.Vec3;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
 import org.joml.Vector4f;
+import org.joml.Vector4fc;
 import org.lwjgl.system.MemoryStack;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -55,7 +56,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalDouble;
-import java.util.OptionalInt;
 
 /**
  * Native planar reflection. Coplanar same-facing mirror cells are grouped onto a shared plane; per
@@ -91,6 +91,11 @@ public final class MirrorRenderer {
         return rendering;
     }
 
+    /** Whether any mirror cells were found near the camera (the composite/depth-seed only run if so). */
+    public static boolean hasMirrors() {
+        return !cached.isEmpty();
+    }
+
     /** Reflection-only fog renderer + scratch data - separate from the main view's so its ring buffer is never
      *  touched (writing the shared ring extra times wraps it and bleeds the close reflection fog into the world). */
     private static FogRenderer reflectionFog;
@@ -117,14 +122,22 @@ public final class MirrorRenderer {
                 .withLocation(Identifier.fromNamespaceAndPath("mirror", "pipeline/mirror_project"))
                 .withVertexShader(Identifier.fromNamespaceAndPath("mirror", "core/mirror_project"))
                 .withFragmentShader(Identifier.fromNamespaceAndPath("mirror", "core/mirror_project"))
-                .withSampler("InSampler")
-                .withUniform("MirrorProj", UniformType.UNIFORM_BUFFER)
-                .withColorTargetState(new ColorTargetState(Optional.of(BlendFunction.ENTITY_OUTLINE_BLIT), 7))
-                // Depth-test (LEQUAL, no write) against the scene so the mirror is occluded by blocks
-                // and entities in front of it; the quad is nudged a hair toward the camera to win over
-                // the mirror block's own front face without z-fighting.
-                .withDepthStencilState(new DepthStencilState(CompareOp.LESS_THAN_OR_EQUAL, false))
-                .withVertexFormat(DefaultVertexFormat.EMPTY, VertexFormat.Mode.TRIANGLES)
+                // 26.2: samplers + uniforms are declared via a BindGroupLayout, not flat builder calls.
+                .withBindGroupLayout(BindGroupLayout.builder()
+                    .withSampler("InSampler")
+                    .withUniform("MirrorProj", UniformType.UNIFORM_BUFFER)
+                    .build())
+                .withColorTargetState(new ColorTargetState(
+                    Optional.of(BlendFunction.ENTITY_OUTLINE_BLIT), GpuFormat.RGBA8_UNORM, ColorTargetState.WRITE_COLOR))
+                // Depth-test (no write) against the scene so the mirror is occluded by blocks and entities in
+                // front of it. 26.2 uses REVERSE-Z depth (near = 1, far = 0), so vanilla world pipelines test
+                // GREATER_THAN_OR_EQUAL - match it, or the test is backwards and the quad draws over everything
+                // (the cursed-branch over-draw). The quad is biased a hair toward the camera in the vertex
+                // shader (gl_Position.z += bias*w, larger depth in reverse-Z) to win over the mirror block's
+                // own coplanar glass face without z-fighting.
+                .withDepthStencilState(new DepthStencilState(CompareOp.GREATER_THAN_OR_EQUAL, false))
+                // No vertex bindings: the shader pulls its 6 quad vertices by gl_VertexID.
+                .withPrimitiveTopology(PrimitiveTopology.TRIANGLES)
                 .withCull(false)
                 .build();
         }
@@ -142,10 +155,13 @@ public final class MirrorRenderer {
                 .withLocation(Identifier.fromNamespaceAndPath("mirror", "pipeline/mirror_project_nodepth"))
                 .withVertexShader(Identifier.fromNamespaceAndPath("mirror", "core/mirror_project"))
                 .withFragmentShader(Identifier.fromNamespaceAndPath("mirror", "core/mirror_project"))
-                .withSampler("InSampler")
-                .withUniform("MirrorProj", UniformType.UNIFORM_BUFFER)
-                .withColorTargetState(new ColorTargetState(Optional.of(BlendFunction.ENTITY_OUTLINE_BLIT), 7))
-                .withVertexFormat(DefaultVertexFormat.EMPTY, VertexFormat.Mode.TRIANGLES)
+                .withBindGroupLayout(BindGroupLayout.builder()
+                    .withSampler("InSampler")
+                    .withUniform("MirrorProj", UniformType.UNIFORM_BUFFER)
+                    .build())
+                .withColorTargetState(new ColorTargetState(
+                    Optional.of(BlendFunction.ENTITY_OUTLINE_BLIT), GpuFormat.RGBA8_UNORM, ColorTargetState.WRITE_COLOR))
+                .withPrimitiveTopology(PrimitiveTopology.TRIANGLES)
                 .withCull(false)
                 .build();
         }
@@ -179,33 +195,10 @@ public final class MirrorRenderer {
     }
 
     /**
-     * Copies a render target's depth while it's still valid - during its framegraph, via the
-     * AFTER_TRANSLUCENT_FEATURES event (the framegraph discards the target's depth once it resolves).
-     * For the MAIN pass this is the scene depth the top-level composite tests against; while rendering a
-     * depth-1 reflection (the redirect target IS the reflection FBO here) it's that FBO's depth, which the
-     * nested depth-2 composite tests against. Deeper levels' depth isn't consumed, so it's skipped.
-     */
-    public static void captureSceneDepth(LevelRenderContext ctx) {
-        if (cached.isEmpty()) {
-            return; // no mirrors nearby - nothing will use a captured depth this frame
-        }
-        Minecraft mc = Minecraft.getInstance();
-        if (mc.level == null) {
-            return;
-        }
-        RenderTarget tgt = mc.getMainRenderTarget(); // == the redirect FBO while a reflection is rendering
-        if (!rendering) {
-            MirrorFbo.getOrCreateSceneDepth(tgt.width, tgt.height).copyDepthFrom(tgt);
-        } else if (renderingDepth == 1) {
-            MirrorFbo.getOrCreateReflectionDepth(tgt.width, tgt.height).copyDepthFrom(tgt);
-        }
-    }
-
-    /**
      * Renders all visible mirror reflections. Called right after {@code renderAllFeatures} in
      * {@code GameRenderer.renderLevel}: the third-person player and held item are now drawn (so our
-     * world re-render no longer steals them), and we depth-test the composite against the scene depth
-     * captured earlier by {@link #captureSceneDepth} (the live depth buffer is already gone by here).
+     * world re-render no longer steals them), and the top-level composite depth-tests against the main
+     * render target's own depth (which still holds the scene at this point) so reflections stay occluded.
      */
     public static void renderAll() {
         if (rendering) {
@@ -213,7 +206,7 @@ public final class MirrorRenderer {
         }
         Minecraft mc = Minecraft.getInstance();
         Level level = mc.level;
-        Camera camera = mc.gameRenderer.getMainCamera();
+        Camera camera = mc.gameRenderer.mainCamera();
         if (level == null || camera == null || mc.player == null) {
             return;
         }
@@ -238,7 +231,7 @@ public final class MirrorRenderer {
             // off-position. cameraRenderState.pos is the terrain-matching eye (not getMainCamera().position()).
             GameRenderer gr = mc.gameRenderer;
             GameRendererAccessor gra = (GameRendererAccessor) (Object) gr;
-            LevelRenderState lrs = gr.getGameRenderState().levelRenderState;
+            LevelRenderState lrs = gr.gameRenderState().levelRenderState;
             Vec3 cs = lrs.cameraRenderState.pos;
             Vec3 eye = new Vec3(cs.x, cs.y, cs.z);
             Matrix4f mainView = new Matrix4f(lrs.cameraRenderState.viewRotationMatrix);
@@ -267,7 +260,7 @@ public final class MirrorRenderer {
                 }
                 groups.computeIfAbsent(planeKey(m), k -> new ArrayList<>()).add(m);
             }
-            RenderTarget mainTarget = mc.getMainRenderTarget();
+            RenderTarget mainTarget = mc.gameRenderer.mainRenderTarget();
             // Render the NEAREST on-screen planes first so the closest mirrors always get the budget
             // (cfg.maxReflections), not whichever the scan happened to list first - matters now that mirrors are
             // found out to render distance and many can be on screen at once.
@@ -305,8 +298,9 @@ public final class MirrorRenderer {
                         // Place nested quads with fbo1's EXACT projection (oblique * its view) so the quad
                         // lands where fbo1 drew the nested mirror AND its depth matches fbo1's depth buffer.
                         Matrix4f place1 = new Matrix4f(r1.obliqueProj()).mul(r1.fboViewRot());
-                        var nestedDepth = MirrorFbo.reflectionDepth != null
-                            ? MirrorFbo.reflectionDepth.getDepthTextureView() : null;
+                        // Occlude the nested composite against the level-1 FBO's own depth (same reasoning as the
+                        // top-level: that FBO holds its rendered depth here, no separate snapshot needed).
+                        var nestedDepth = r1.fbo().getDepthTextureView();
                         int nplanes = 0;
                         for (List<MirrorSurface> ng : visibleGroups(r1.cam().position(), planeKey(rep)).values()) {
                             if (nplanes++ >= cfg.nestedPerParent) {
@@ -329,21 +323,29 @@ public final class MirrorRenderer {
                     // Composite r1's (now possibly nested-decorated) reflection onto the screen.
                     Matrix4f place0 = new Matrix4f(mainProjBob).mul(mainView);
                     Matrix4f sample1 = new Matrix4f(mainProj).mul(r1.fboViewRot());
-                    var depthView = (MirrorFbo.sceneDepth != null ? MirrorFbo.sceneDepth : mainTarget).getDepthTextureView();
+                    // Occlude against the main target's depth: GameRendererMixin re-seeded it with the captured
+                    // world depth before the hand drew, so by now it holds world + held-item depth - the
+                    // reflection is hidden behind both walls and the item in hand. (sceneDepth alone lacks the
+                    // hand, which is drawn after the framegraph that sceneDepth was copied from.)
+                    var depthView = mainTarget.getDepthTextureView();
                     for (MirrorSurface s : group) {
                         composite(mainTarget.getColorTextureView(), r1.fbo(), place0, sample1, cellCorners(s),
                             eye, r1.cam().position(), depthView);
                     }
                 }
             } finally {
-                rendering = false;
-                // renderWorldToFbo leaves LevelRenderer on the last virtual camera - restore the main view
-                // (visible-section set + camera render state) once, so the rest of the frame is correct.
-                ((LevelRendererAccessor) mc.levelRenderer).mirror$applyFrustum(camera.getCullFrustum());
-                mc.levelRenderer.extractLevel(dt, camera, partial);
+                // renderWorldToFbo leaves the extractor on the last virtual camera - re-extract for the main
+                // view once so the rest of the frame is correct. Keep `rendering` true across this restore
+                // extract so the consumeFrustumUpdate suppression still covers it (else this 3rd extract eats
+                // the main view's pending per-frame frustum-update signal and the main view goes a frame stale,
+                // cutting off as you turn). extract()'s own applyFrustum is gated on that consumed signal, so
+                // force the MAIN frustum back explicitly or the main view stays culled to the reflected frustum.
+                mc.levelExtractor.extract(dt, camera, partial);
+                ((LevelExtractorAccessor) mc.levelExtractor).mirror$applyFrustum(camera.getCullFrustum());
                 if (reflectionFog != null) {
                     reflectionFog.endFrame(); // recycle our fog ring buffer for next frame
                 }
+                rendering = false;
             }
         } catch (Throwable t) {
             if (!loggedError) {
@@ -374,7 +376,7 @@ public final class MirrorRenderer {
             return null; // hard cap on full world re-renders per frame
         }
         passes++;
-        RenderTarget mainTarget = mc.getMainRenderTarget();
+        RenderTarget mainTarget = mc.gameRenderer.mainRenderTarget();
         TextureTarget fbo = MirrorFbo.level(depth, mainTarget.width, mainTarget.height);
 
         // Reflected virtual camera across this plane (position + yaw mirrored, pitch unchanged).
@@ -393,14 +395,26 @@ public final class MirrorRenderer {
         // depth out to where the world fades. Built here (not later) so the SAME far reach also drives the chunk
         // cull frustum below - otherwise the far floor is culled and the reflected floor stops short.
         float far = cfg.farBlocks();
+        // STANDARD-Z perspective (near, far in normal order). This drives both the cull frustum
+        // (prepareCullFrustum needs a normal, non-inverted frustum or offsetToFullyIncludeCameraCube can't
+        // include the camera cube → freeze) AND the oblique near-plane clip (Lengyel math is derived for a
+        // standard-Z projection). The final render projection is converted to 26.2's reverse-Z below, after
+        // the oblique is applied, so the reflection's terrain still depth-sorts under the GREATER_THAN_OR_EQUAL
+        // world pipelines. (Feeding a reverse-Z projection here broke both: the freeze and the oblique clip.)
+        boolean zZeroToOne = RenderSystem.getDevice().getDeviceInfo().isZZeroToOne();
         Matrix4f reflProj = new Matrix4f().setPerspective(
             2.0f * (float) Math.atan(1.0 / mainProj.m11()), mainProj.m11() / mainProj.m00(),
-            0.05f, far, RenderSystem.getDevice().isZZeroToOne());
+            0.05f, far, zZeroToOne);
         inv.mirror$prepareCullFrustum(vView, reflProj, virtual.position());
-        // Visible-section set for the VIRTUAL frustum (else sections pop as the MAIN view moves/turns).
-        ((LevelRendererAccessor) mc.levelRenderer).mirror$applyFrustum(virtual.getCullFrustum());
-
-        mc.levelRenderer.extractLevel(dt, virtual, partial);
+        // Mark this plane as the one being reflected, so its OWN block-entity model is skipped during the
+        // extract+render below (a mirror must not draw inside its own reflection) while OTHER mirrors still draw.
+        long prevPlaneKey = reflectingPlaneKey;
+        reflectingPlaneKey = planeKey(plane);
+        mc.levelExtractor.extract(dt, virtual, partial);
+        // extract()'s own applyFrustum is gated on the per-frame occlusion signal we suppress during the pass,
+        // so the reflection's extract skips it and the section set stays on the MAIN frustum. Force the virtual
+        // frustum so the reflection culls its OWN sections (else distant sections pop as the main view turns).
+        ((LevelExtractorAccessor) mc.levelExtractor).mirror$applyFrustum(virtual.getCullFrustum());
         // No weather in reflections: WeatherEffectRenderer's fixed instance buffer overflows when several
         // passes share it, and a mid-renderLevel throw then leaks the model-view stack into a fatal crash.
         lrs.weatherRenderState.reset();
@@ -435,6 +449,15 @@ public final class MirrorRenderer {
         // skips the reflection pass entirely (MirrorBlockEntityRenderer), so it's never in this FBO to begin with.
         // Bend reflProj (built above, with the generous far) into the oblique near-plane clip at the mirror plane.
         Matrix4f oblique = obliqueProjection(reflProj, cam.viewRotationMatrix, plane.normal(), plane.center(), virtual.position());
+        // Convert the standard-Z oblique to 26.2 REVERSE-Z for the actual render, so the reflection's terrain
+        // sorts NEAR-over-far under the GREATER_THAN_OR_EQUAL world pipelines (without this the depth stays
+        // standard-Z and far draws over near - the "drawing farther things on top of closer things" bug). The
+        // conversion depends on the clip-space depth range: for [0,1] (z' = w - z) m22→-1-m22; for [-1,1]
+        // (z' = -z) m22→-m22. Both negate m02/m12/m32. (w row of a perspective matrix is (0,0,-1,0).)
+        oblique.m02(-oblique.m02());
+        oblique.m12(-oblique.m12());
+        oblique.m32(-oblique.m32());
+        oblique.m22(zZeroToOne ? (-1.0f - oblique.m22()) : -oblique.m22());
         cam.projectionMatrix.set(oblique);
         GpuBufferSlice savedProj = RenderSystem.getProjectionMatrixBuffer();
         ProjectionType savedType = RenderSystem.getProjectionType();
@@ -442,13 +465,12 @@ public final class MirrorRenderer {
         RenderSystem.setProjectionMatrix(projBuffer().getBuffer(oblique), ProjectionType.PERSPECTIVE);
 
         // Clear the FBO to the fog colour (the redirected render leaves stale garbage where geometry misses).
-        Vector4f fc = cam.fogData.color;
-        int clearArgb = 0xFF000000
-            | (Math.round(Math.min(1f, Math.max(0f, fc.x)) * 255f) << 16)
-            | (Math.round(Math.min(1f, Math.max(0f, fc.y)) * 255f) << 8)
-            | Math.round(Math.min(1f, Math.max(0f, fc.z)) * 255f);
+        // 26.2 takes a Vector4fc clear colour; force alpha 1 so the clear is opaque. Depth clears to 0.0, not
+        // 1.0: reverse-Z puts the far plane at 0, so terrain's GREATER_THAN_OR_EQUAL test passes against it.
+        Vector4f cc = cam.fogData.color;
+        Vector4f clearColor = new Vector4f(cc.x, cc.y, cc.z, 1.0f);
         RenderSystem.getDevice().createCommandEncoder()
-            .clearColorAndDepthTextures(fbo.getColorTexture(), clearArgb, fbo.getDepthTexture(), 1.0);
+            .clearColorAndDepthTextures(fbo.getColorTexture(), clearColor, fbo.getDepthTexture(), 0.0);
 
         // Terrain reads the camera position from the Globals UBO (not cam.pos) - rebuild it for the virtual
         // camera so terrain renders camera-relative to the reflection, matching the entities.
@@ -468,8 +490,11 @@ public final class MirrorRenderer {
         renderingDepth = depth; // captureSceneDepth uses this to snapshot the right FBO's depth mid-render
         RenderSystem.setGlobalSettingsUniform(mirrorGlobals);
         try {
-            mc.levelRenderer.renderLevel(gra.mirror$resourcePool(), dt, false, cam, cam.viewRotationMatrix,
-                terrainFog, cam.fogData.color, true, lrs.chunkSectionsToRender);
+            // 26.2 consolidated bookkeeping + draw into LevelRenderer.render (no precomputed section list arg).
+            // It re-runs the once-per-frame chunk bookkeeping; the mixins (SectionOcclusionGraph/ViewArea) cancel
+            // the parts that would corrupt the main view, gated on MirrorFbo.redirect.
+            mc.levelRenderer.render(gra.mirror$resourcePool(), dt, false, cam, cam.viewRotationMatrix,
+                terrainFog, cam.fogData.color, true);
         } finally {
             MirrorFbo.redirect = prevRedirect;
             MirrorFbo.target = prevTarget;
@@ -479,6 +504,7 @@ public final class MirrorRenderer {
             RenderSystem.setProjectionMatrix(savedProj, savedType);
             RenderSystem.setShaderFog(savedShaderFog); // restore the main view's fog slice (renderLevel clobbered it)
             mvStack.popMatrix();
+            reflectingPlaneKey = prevPlaneKey; // restore (handles the nested depth-2 render too)
         }
         return new Reflected(virtual, fboViewRot, oblique, fbo);
     }
@@ -525,6 +551,23 @@ public final class MirrorRenderer {
     private static long planeKey(MirrorSurface m) {
         long d = Math.round(m.normal().dot(m.center()) * 16.0); // 1/16-block precision along the normal
         return ((long) m.facing().ordinal() << 32) | (d & 0xFFFFFFFFL);
+    }
+
+    /** Plane key of the mirror currently being reflected into an FBO (so its OWN block-entity model is skipped
+     *  during that render - a mirror must not appear in its own reflection). NO_PLANE when not rendering. */
+    private static final long NO_PLANE = Long.MIN_VALUE;
+    private static long reflectingPlaneKey = NO_PLANE;
+
+    /**
+     * Whether {@link MirrorBlockEntityRenderer} should skip drawing the mirror at {@code pos}/{@code facing}
+     * right now. Only the plane being reflected is skipped (it would self-reflect); OTHER mirrors are drawn so
+     * they appear (frame + glass) inside this reflection, and their own reflections composite via recursion.
+     */
+    public static boolean skipInReflection(BlockPos pos, net.minecraft.core.Direction facing) {
+        if (!rendering) {
+            return false;
+        }
+        return planeKey(MirrorSurface.single(pos, facing, false, false, false, false)) == reflectingPlaneKey;
     }
 
     /**
@@ -575,9 +618,9 @@ public final class MirrorRenderer {
         // (nested composite onto a reflection FBO, whose depth the framegraph discarded): draw unconditionally.
         CommandEncoder enc = RenderSystem.getDevice().createCommandEncoder();
         try (ubo; RenderPass pass = depthView != null
-                ? enc.createRenderPass(() -> "mirror_composite", targetColor, OptionalInt.empty(),
+                ? enc.createRenderPass(() -> "mirror_composite", targetColor, Optional.<Vector4fc>empty(),
                     depthView, OptionalDouble.empty())
-                : enc.createRenderPass(() -> "mirror_composite", targetColor, OptionalInt.empty())) {
+                : enc.createRenderPass(() -> "mirror_composite", targetColor, Optional.<Vector4fc>empty())) {
             pass.setPipeline(depthView != null ? projectPipeline() : projectPipelineNoDepth());
             RenderSystem.bindDefaultUniforms(pass);
             pass.setUniform("MirrorProj", ubo.slice());
@@ -586,7 +629,7 @@ public final class MirrorRenderer {
             // shimmering diagonal bands; bilinear averages them into a smooth reflection.
             pass.bindTexture("InSampler", sampleFbo.getColorTextureView(),
                 RenderSystem.getSamplerCache().getClampToEdge(FilterMode.LINEAR));
-            pass.draw(0, 6);
+            pass.draw(6, 1, 0, 0); // 26.2: draw(vertexCount, instanceCount, firstVertex, firstInstance)
         }
     }
 

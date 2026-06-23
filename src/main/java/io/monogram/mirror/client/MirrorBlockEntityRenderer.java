@@ -40,15 +40,21 @@ public class MirrorBlockEntityRenderer
             ModelFeatureRenderer.CrumblingOverlay crumbling) {
         BlockEntityRenderState.extractBase(be, state, crumbling);
         state.model.clear();
-        if (MirrorRenderer.isRendering()) {
-            return; // never build the mirror's geometry while rendering a reflection
+        net.minecraft.world.level.block.state.BlockState bs = be.getBlockState();
+        // Skip building only the mirror whose reflection is currently being rendered (it would appear in its
+        // own reflection). Other mirrors build normally - so they show, frame + glass, inside this reflection.
+        if (!(bs.getBlock() instanceof io.monogram.mirror.MirrorBlock)
+                || MirrorRenderer.skipInReflection(be.getBlockPos(), bs.getValue(io.monogram.mirror.MirrorBlock.FACING))) {
+            return;
         }
-        modelResolver.update(state.model, be.getBlockState(), displayContext);
+        modelResolver.update(state.model, bs, displayContext);
     }
 
     @Override
     public void submit(State state, PoseStack pose, SubmitNodeCollector collector, CameraRenderState camera) {
-        if (MirrorRenderer.isRendering() || state.model.isEmpty()) {
+        // No isRendering() gate: the reflected plane's model was already left empty in extractRenderState, so
+        // an empty model is the signal to skip; a built model (any other mirror) draws even during a reflection.
+        if (state.model.isEmpty()) {
             return;
         }
         state.model.submit(pose, collector, state.lightCoords, OverlayTexture.NO_OVERLAY, 0);
