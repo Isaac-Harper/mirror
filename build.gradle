@@ -40,6 +40,8 @@ dependencies {
     // WorldRenderEvents (the client render hook) lives in this module. The fabric-api bundle
     // exposes its modules only at runtime under plain `implementation`, so depend on it for compile.
     implementation "net.fabricmc.fabric-api:fabric-rendering-v1:${project.rendering_version}"
+    // CreativeModeTabEvents (adds the mirror to a creative tab) lives in this module - same compile-time story.
+    implementation "net.fabricmc.fabric-api:fabric-creative-tab-api-v1:${project.creativetab_version}"
     // Mod Menu (config button) + Cloth Config (the settings screen) for MirrorModMenu. compileOnly, not
     // implementation: the only Mod Menu build for 26.2 (19.0.0-alpha.1) crashes on the title screen
     // (it calls I18n.exists, removed in 26.2), so we don't load it in the dev runtime. The integration
