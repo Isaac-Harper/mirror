@@ -5,7 +5,9 @@ plugins {
     id 'me.modmuss50.mod-publish-plugin' version '1.1.0'
 }
 
-version = project.mod_version
+// Version carries the Minecraft version as build metadata (e.g. 0.1.0+26.2) so each MC port is a distinct
+// jar / Modrinth version - Modrinth requires unique version numbers, and 26.1/26.2 ship as separate builds.
+version = "${project.mod_version}+${project.minecraft_version}"
 group = project.maven_group
 
 base {
@@ -74,7 +76,7 @@ publishMods {
     file = tasks.jar.archiveFile
     version = project.version.toString()
     type = me.modmuss50.mpp.ReleaseType.STABLE
-    displayName = "Mirror ${project.version}"
+    displayName = "Mirror ${project.mod_version} (MC ${project.minecraft_version})"
     modLoaders.add("fabric")
     changelog = "See the project page for the change list."
     dryRun = !providers.environmentVariable("MODRINTH_TOKEN").isPresent()
