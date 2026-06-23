@@ -40,6 +40,8 @@ dependencies {
     // WorldRenderEvents (the client render hook) lives in this module. The fabric-api bundle
     // exposes its modules only at runtime under plain `implementation`, so depend on it for compile.
     implementation "net.fabricmc.fabric-api:fabric-rendering-v1:${project.rendering_version}"
+    // CreativeModeTabEvents (adds the mirror to a creative tab) lives in this module - same compile-time story.
+    implementation "net.fabricmc.fabric-api:fabric-creative-tab-api-v1:${project.creativetab_version}"
     // Mod Menu (config button) + Cloth Config (the settings screen). Optional at runtime - the mod's
     // core works without them; only the in-game settings GUI needs them (see MirrorModMenu).
     implementation "com.terraformersmc:modmenu:${project.modmenu_version}"

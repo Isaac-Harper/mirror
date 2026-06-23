@@ -1,6 +1,7 @@
 package io.monogram.mirror;
 
 import net.fabricmc.api.ModInitializer;
+import net.fabricmc.fabric.api.creativetab.v1.CreativeModeTabEvents;
 import net.fabricmc.fabric.api.object.builder.v1.block.entity.FabricBlockEntityTypeBuilder;
 import net.minecraft.core.Registry;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -62,5 +63,12 @@ public class MirrorMod implements ModInitializer {
         Registry.register(BuiltInRegistries.BLOCK, MIRROR_BLOCK_KEY, MIRROR_BLOCK);
         Registry.register(BuiltInRegistries.ITEM, MIRROR_ITEM_KEY, MIRROR_ITEM);
         Registry.register(BuiltInRegistries.BLOCK_ENTITY_TYPE, MIRROR_ID, MIRROR_BLOCK_ENTITY);
+
+        // Add the mirror to the Functional Blocks creative tab (otherwise it is only reachable via crafting
+        // or /give). The vanilla tab key is private, so reference the tab by its registry id.
+        CreativeModeTabEvents.modifyOutputEvent(
+                ResourceKey.create(Registries.CREATIVE_MODE_TAB,
+                    Identifier.fromNamespaceAndPath("minecraft", "functional_blocks")))
+            .register(output -> output.accept(MIRROR_ITEM));
     }
 }
