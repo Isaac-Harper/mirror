@@ -92,6 +92,11 @@ public final class MirrorRenderer {
         return rendering;
     }
 
+    /** True when the last scan found mirrors nearby - gates the hand-depth seed in GameRendererMixin. */
+    public static boolean hasMirrors() {
+        return !cached.isEmpty();
+    }
+
     /** Reflection-only fog renderer + scratch data - separate from the main view's so its ring buffer is never
      *  touched (writing the shared ring extra times wraps it and bleeds the close reflection fog into the world). */
     private static FogRenderer reflectionFog;
@@ -327,7 +332,11 @@ public final class MirrorRenderer {
                     // Composite r1's (now possibly nested-decorated) reflection onto the screen.
                     Matrix4f place0 = new Matrix4f(mainProjBob).mul(mainView);
                     Matrix4f sample1 = new Matrix4f(mainProj).mul(r1.fboViewRot());
-                    var depthView = (MirrorFbo.sceneDepth != null ? MirrorFbo.sceneDepth : mainTarget).getDepthTextureView();
+                    // Occlude against the main target's depth: GameRendererMixin re-seeded it with the captured
+                    // world depth before the hand drew, so by now it holds world + held-item depth - the
+                    // reflection is hidden behind both walls and the item in hand. (sceneDepth alone lacks the
+                    // hand, which is drawn after the framegraph that sceneDepth was copied from.)
+                    var depthView = mainTarget.getDepthTextureView();
                     for (MirrorSurface s : group) {
                         composite(mainTarget.getColorTextureView(), r1.fbo(), place0, sample1, cellCorners(s),
                             eye, r1.cam().position(), depthView);
