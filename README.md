@@ -2,6 +2,12 @@
 
 Reflective mirror blocks for Minecraft 26.1 and 26.2 (Fabric). Mirrors show a live planar reflection of the world around them, rendered natively on the client with no Immersive Portals or other rendering dependency.
 
+## Screenshots
+
+![A mirror reflecting the player across a garden courtyard](images/reflection-courtyard.png)
+
+![Two mirrors facing each other, their reflections receding into a hall of mirrors](images/hall-of-mirrors.png)
+
 ## Features
 
 - A wood-framed mirror block that shows a live reflection of the world, correct from any viewing angle.
