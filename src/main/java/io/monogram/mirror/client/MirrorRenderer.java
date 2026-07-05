@@ -461,6 +461,10 @@ public final class MirrorRenderer {
         // Visible-section set for the VIRTUAL frustum (else sections pop as the MAIN view moves/turns).
         ((LevelRendererAccessor) mc.levelRenderer).mirror$applyFrustum(virtual.getCullFrustum());
 
+        // Mark this plane as the one being reflected, so its OWN block-entity model is skipped during the
+        // extract+render below (a mirror must not draw inside its own reflection) while OTHER mirrors still draw.
+        long prevPlaneKey = reflectingPlaneKey;
+        reflectingPlaneKey = planeKey(plane);
         mc.levelRenderer.extractLevel(dt, virtual, partial);
         // No weather in reflections: WeatherEffectRenderer's fixed instance buffer overflows when several
         // passes share it, and a mid-renderLevel throw then leaks the model-view stack into a fatal crash.
@@ -540,6 +544,7 @@ public final class MirrorRenderer {
             RenderSystem.setProjectionMatrix(savedProj, savedType);
             RenderSystem.setShaderFog(savedShaderFog); // restore the main view's fog slice (renderLevel clobbered it)
             mvStack.popMatrix();
+            reflectingPlaneKey = prevPlaneKey; // restore (handles the nested renders too)
         }
         return new Reflected(virtual, fboViewRot, oblique, fbo);
     }
@@ -600,6 +605,23 @@ public final class MirrorRenderer {
     private static long planeKey(MirrorSurface m) {
         long d = Math.round(m.normal().dot(m.center()) * 16.0); // 1/16-block precision along the normal
         return ((long) m.facing().ordinal() << 32) | (d & 0xFFFFFFFFL);
+    }
+
+    /** Plane key of the mirror currently being reflected into an FBO (so its OWN block-entity model is skipped
+     *  during that render - a mirror must not appear in its own reflection). NO_PLANE when not rendering. */
+    private static final long NO_PLANE = Long.MIN_VALUE;
+    private static long reflectingPlaneKey = NO_PLANE;
+
+    /**
+     * Whether {@link MirrorBlockEntityRenderer} should skip drawing the mirror at {@code pos}/{@code facing}
+     * right now. Only the plane being reflected is skipped (it would self-reflect); OTHER mirrors are drawn so
+     * they appear (frame + glass) inside this reflection, and their own reflections composite via recursion.
+     */
+    public static boolean skipInReflection(BlockPos pos, net.minecraft.core.Direction facing) {
+        if (!rendering) {
+            return false;
+        }
+        return planeKey(MirrorSurface.single(pos, facing, false, false, false, false)) == reflectingPlaneKey;
     }
 
     /**
