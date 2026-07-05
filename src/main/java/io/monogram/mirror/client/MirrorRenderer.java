@@ -82,6 +82,7 @@ public final class MirrorRenderer {
     private static int passes = 0;              // full reflection renders so far this frame (budget guard)
     private static int renderingDepth = 0;      // recursion depth of the reflection currently being rendered
     private static List<MirrorSurface> cached = List.of();
+    private static Level lastLevel;             // detects world/dimension changes (drop the stale cache)
     private static boolean loggedError = false;
     private static boolean rendering = false;
 
@@ -132,9 +133,9 @@ public final class MirrorRenderer {
     }
 
     /**
-     * Same as {@link #projectPipeline()} but with NO depth test - used to composite a nested (depth-2)
-     * reflection onto a parent reflection's FBO, whose own depth buffer the framegraph has discarded
-     * (so there's nothing to occlude against). The nested mirror surface is unobstructed in practice.
+     * Same as {@link #projectPipeline()} but with NO depth test - fallback for compositing a nested
+     * reflection onto a parent reflection's FBO when that parent's depth capture is missing (its own
+     * depth buffer the framegraph has discarded, so there's nothing to occlude against).
      */
     private static RenderPipeline projectPipelineNoDepth() {
         if (projectPipelineNoDepth == null) {
@@ -160,20 +161,27 @@ public final class MirrorRenderer {
     }
 
     /** Oblique near-plane projection (Lengyel): bends `proj` so its near plane is the mirror plane. */
-    private static Matrix4f obliqueProjection(Matrix4f proj, Matrix4f viewRot, Vec3 n, Vec3 p, Vec3 v) {
+    private static Matrix4f obliqueProjection(Matrix4f proj, Matrix4f viewRot, Vec3 n, Vec3 p, Vec3 v,
+                                              boolean zZeroToOne) {
         // Clip plane in the virtual camera's view space; kept side = the mirror's front (player) side.
         Vector3f nView = viewRot.transformDirection(new Vector3f((float) n.x, (float) n.y, (float) n.z));
         float cw = -(float) (n.x * (p.x - v.x) + n.y * (p.y - v.y) + n.z * (p.z - v.z));
         float cx = nView.x, cy = nView.y, cz = nView.z;
 
         Matrix4f ob = new Matrix4f(proj);
+        // Q = the far-plane corner nearest the clip plane, recovered through P's inverse. The far corner is
+        // clip (±1, ±1, 1, 1) in BOTH depth conventions (z_ndc = 1 at far either way), so qx/qy/qw hold too.
         float qx = (Math.signum(cx) + ob.m20()) / ob.m00();
         float qy = (Math.signum(cy) + ob.m21()) / ob.m11();
         float qw = (1.0f + ob.m22()) / ob.m32();
-        float s = 2.0f / (cx * qx + cy * qy - cz + cw * qw);
+        float cq = cx * qx + cy * qy - cz + cw * qw; // C·Q
+        // Replace the z row so the near plane IS the clip plane while the far plane still touches Q.
+        // [-1,1]: near is z_clip = -w, so row2' = s*C + w-row gives C·v = 0 -> z_ndc = -1, with s = 2/(C·Q).
+        // [0,1]:  near is z_clip = 0,  so row2' = s*C alone gives C·v = 0 -> z_ndc = 0,  with s = 1/(C·Q).
+        float s = (zZeroToOne ? 1.0f : 2.0f) / cq;
         ob.m02(cx * s);
         ob.m12(cy * s);
-        ob.m22(cz * s + 1.0f);
+        ob.m22(zZeroToOne ? cz * s : cz * s + 1.0f);
         ob.m32(cw * s);
         return ob;
     }
@@ -182,8 +190,8 @@ public final class MirrorRenderer {
      * Copies a render target's depth while it's still valid - during its framegraph, via the
      * AFTER_TRANSLUCENT_FEATURES event (the framegraph discards the target's depth once it resolves).
      * For the MAIN pass this is the scene depth the top-level composite tests against; while rendering a
-     * depth-1 reflection (the redirect target IS the reflection FBO here) it's that FBO's depth, which the
-     * nested depth-2 composite tests against. Deeper levels' depth isn't consumed, so it's skipped.
+     * reflection (the redirect target IS the reflection FBO here) it's that level's depth, which the
+     * next-deeper composite tests against. The deepest level's depth isn't consumed, so it's skipped.
      */
     public static void captureSceneDepth(LevelRenderContext ctx) {
         if (cached.isEmpty()) {
@@ -196,8 +204,8 @@ public final class MirrorRenderer {
         RenderTarget tgt = mc.getMainRenderTarget(); // == the redirect FBO while a reflection is rendering
         if (!rendering) {
             MirrorFbo.getOrCreateSceneDepth(tgt.width, tgt.height).copyDepthFrom(tgt);
-        } else if (renderingDepth == 1) {
-            MirrorFbo.getOrCreateReflectionDepth(tgt.width, tgt.height).copyDepthFrom(tgt);
+        } else if (renderingDepth < MirrorConfig.get().recursionDepth) {
+            MirrorFbo.getOrCreateReflectionDepth(renderingDepth, tgt.width, tgt.height).copyDepthFrom(tgt);
         }
     }
 
@@ -218,6 +226,14 @@ public final class MirrorRenderer {
             return;
         }
 
+        if (level != lastLevel) {
+            // New world or dimension: the cached positions belong to the old one, and a fresh world
+            // deserves fresh reflection-error diagnostics.
+            lastLevel = level;
+            cached = List.of();
+            loggedError = false;
+            frame = 0; // rescan immediately below
+        }
         if (frame++ % RESCAN_INTERVAL == 0) {
             cached = findNearbyMirrors(level, camera.position());
         }
@@ -228,6 +244,9 @@ public final class MirrorRenderer {
         DeltaTracker dt = mc.getDeltaTracker();
         float partial = dt.getGameTimeDeltaPartialTick(false);
         MirrorConfig cfg = MirrorConfig.get();
+        // Free level buffers beyond the configured depth (no-op unless the user lowered recursionDepth),
+        // here because destroying GPU buffers must happen on the render thread.
+        MirrorFbo.trim(cfg.recursionDepth);
 
         try {
             Vec3 camPos = camera.position();
@@ -273,57 +292,36 @@ public final class MirrorRenderer {
             // found out to render distance and many can be on screen at once.
             List<List<MirrorSurface>> ordered = new ArrayList<>(groups.values());
             ordered.sort(java.util.Comparator.comparingDouble(g -> g.get(0).center().distanceToSqr(eye)));
-            int planesRendered = 0;
+            // Filter to the on-screen planes BEFORE rendering, so each plane can reserve one pass for every
+            // plane still waiting behind it - otherwise a near mirror's recursion eats the whole pass budget
+            // and farther mirrors get no level-1 render at all, flickering in and out as the camera moves.
+            List<List<MirrorSurface>> onScreen = new ArrayList<>();
+            for (List<MirrorSurface> group : ordered) {
+                if (onScreen.size() >= cfg.maxReflections) {
+                    break; // bound top-level planes per frame
+                }
+                for (MirrorSurface s : group) {
+                    // Test with the BOBBED projection - the quad is placed with it (place0), so testing the
+                    // unbobbed one can disagree at the screen edge for a frame while walking.
+                    if (mirrorScreenRect(s, eye, mainView, mainProjBob, mainTarget.width, mainTarget.height) != null) {
+                        onScreen.add(group);
+                        break;
+                    }
+                }
+            }
             rendering = true;
             passes = 0;
             try {
-                for (List<MirrorSurface> group : ordered) {
-                    if (planesRendered >= cfg.maxReflections) {
-                        break; // bound top-level planes per frame
-                    }
+                for (int i = 0; i < onScreen.size(); i++) {
+                    List<MirrorSurface> group = onScreen.get(i);
                     MirrorSurface rep = group.get(0); // any cell defines the shared plane
-                    boolean onScreen = false;
-                    for (MirrorSurface s : group) {
-                        if (mirrorScreenRect(s, eye, mainView, mainProj, mainTarget.width, mainTarget.height) != null) {
-                            onScreen = true;
-                            break;
-                        }
-                    }
-                    if (!onScreen) {
-                        continue; // the whole merged mirror is off-screen
-                    }
-                    planesRendered++; // count only on-screen planes that consume the budget
-                    // Level 1: render the world this mirror reflects into its FBO.
-                    Reflected r1 = renderWorldToFbo(mc, gra, lrs, eye, camera.yRot(), camera.xRot(), rep, mainProj, 1, dt, partial);
+                    // Render the world this mirror reflects (level 1) and recursively decorate it with any
+                    // mirror-in-mirror bounces down to cfg.recursionDepth (see renderReflection). Recursion may
+                    // only spend passes the planes still waiting after this one won't need for their level 1.
+                    int reserved = onScreen.size() - i - 1;
+                    Reflected r1 = renderReflection(mc, gra, lrs, eye, camera.yRot(), camera.xRot(), rep, mainProj, 1, dt, partial, reserved);
                     if (r1 == null) {
                         continue; // pass budget exhausted
-                    }
-
-                    // Level 2 (one bounce): for each mirror visible INSIDE r1's reflection, render its own
-                    // reflection and composite it onto r1's FBO - so a mirror-in-a-mirror shows a reflection.
-                    if (cfg.recursionDepth >= 2) {
-                        // Place nested quads with fbo1's EXACT projection (oblique * its view) so the quad
-                        // lands where fbo1 drew the nested mirror AND its depth matches fbo1's depth buffer.
-                        Matrix4f place1 = new Matrix4f(r1.obliqueProj()).mul(r1.fboViewRot());
-                        var nestedDepth = MirrorFbo.reflectionDepth != null
-                            ? MirrorFbo.reflectionDepth.getDepthTextureView() : null;
-                        int nplanes = 0;
-                        for (List<MirrorSurface> ng : visibleGroups(r1.cam().position(), planeKey(rep)).values()) {
-                            if (nplanes++ >= cfg.nestedPerParent) {
-                                break;
-                            }
-                            MirrorSurface nrep = ng.get(0);
-                            Reflected r2 = renderWorldToFbo(mc, gra, lrs, r1.cam().position(),
-                                r1.cam().yRot(), r1.cam().xRot(), nrep, mainProj, 2, dt, partial);
-                            if (r2 == null) {
-                                break;
-                            }
-                            Matrix4f sample2 = new Matrix4f(mainProj).mul(r2.fboViewRot());
-                            for (MirrorSurface s : ng) {
-                                composite(r1.fbo().getColorTextureView(), r2.fbo(), place1, sample2, cellCorners(s),
-                                    r1.cam().position(), r2.cam().position(), nestedDepth); // occlude against fbo1's depth
-                            }
-                        }
                     }
 
                     // Composite r1's (now possibly nested-decorated) reflection onto the screen.
@@ -351,6 +349,59 @@ public final class MirrorRenderer {
                 LOGGER.error("[mirror] reflection pass threw", t);
             }
         }
+    }
+
+    /**
+     * Render {@code rep}'s reflection at recursion {@code depth} into its level FBO, then for each mirror
+     * visible INSIDE that reflection (up to {@code cfg.nestedPerParent}) recurse one level deeper and
+     * composite the child's reflection onto this one - so a mirror seen in a mirror shows its own reflection,
+     * out to {@code cfg.recursionDepth} bounces (a hall of mirrors). Depth-first: each level's FBO is fully
+     * composited upward before a sibling at the same level reuses it. Returns null when the per-frame pass
+     * budget ({@code cfg.maxRenderPasses}) is exhausted, which also bounds the total recursion.
+     * {@code reserved} passes are kept back for the top-level planes still waiting behind this one, so deep
+     * recursion on a near mirror can't starve a farther mirror of its level-1 render (visible flicker).
+     */
+    private static Reflected renderReflection(Minecraft mc, GameRendererAccessor gra, LevelRenderState lrs,
+            Vec3 viewerEye, float viewerYaw, float viewerPitch, MirrorSurface rep, Matrix4f mainProj,
+            int depth, DeltaTracker dt, float partial, int reserved) {
+        Reflected r = renderWorldToFbo(mc, gra, lrs, viewerEye, viewerYaw, viewerPitch, rep, mainProj, depth, dt, partial);
+        if (r == null) {
+            return null; // pass budget exhausted
+        }
+        MirrorConfig cfg = MirrorConfig.get();
+        if (depth < cfg.recursionDepth) {
+            // Place nested quads with this FBO's EXACT projection (oblique * its view) so each lands where this
+            // level drew the nested mirror, and occlude them against this level's captured depth (the FBO's
+            // own depth is discarded once its framegraph resolves - see captureSceneDepth).
+            Matrix4f place = new Matrix4f(r.obliqueProj()).mul(r.fboViewRot());
+            TextureTarget levelDepth = MirrorFbo.reflectionDepth(depth);
+            var nestedDepth = levelDepth != null ? levelDepth.getDepthTextureView() : null;
+            // Nearest-first from the virtual eye (like the top level), not cache scan order - scan order
+            // changes on every rescan, making WHICH nested mirrors get the bounces flicker every ~40 frames.
+            List<List<MirrorSurface>> nested = new ArrayList<>(visibleGroups(mc.level, r.cam().position(), rep).values());
+            nested.sort(java.util.Comparator.comparingDouble(g -> g.get(0).center().distanceToSqr(r.cam().position())));
+            int nplanes = 0;
+            for (List<MirrorSurface> ng : nested) {
+                if (nplanes++ >= cfg.nestedPerParent) {
+                    break;
+                }
+                if (passes >= cfg.maxRenderPasses - reserved) {
+                    break; // the remaining budget belongs to the top-level planes still waiting
+                }
+                MirrorSurface nrep = ng.get(0);
+                Reflected child = renderReflection(mc, gra, lrs, r.cam().position(),
+                    r.cam().yRot(), r.cam().xRot(), nrep, mainProj, depth + 1, dt, partial, reserved);
+                if (child == null) {
+                    break; // budget exhausted - stop descending this branch
+                }
+                Matrix4f sample = new Matrix4f(mainProj).mul(child.fboViewRot());
+                for (MirrorSurface s : ng) {
+                    composite(r.fbo().getColorTextureView(), child.fbo(), place, sample, cellCorners(s),
+                        r.cam().position(), child.cam().position(), nestedDepth); // occlude against this FBO's depth
+                }
+            }
+        }
+        return r;
     }
 
     /**
@@ -393,9 +444,10 @@ public final class MirrorRenderer {
         // depth out to where the world fades. Built here (not later) so the SAME far reach also drives the chunk
         // cull frustum below - otherwise the far floor is culled and the reflected floor stops short.
         float far = cfg.farBlocks();
+        boolean zZeroToOne = RenderSystem.getDevice().isZZeroToOne();
         Matrix4f reflProj = new Matrix4f().setPerspective(
             2.0f * (float) Math.atan(1.0 / mainProj.m11()), mainProj.m11() / mainProj.m00(),
-            0.05f, far, RenderSystem.getDevice().isZZeroToOne());
+            0.05f, far, zZeroToOne);
         inv.mirror$prepareCullFrustum(vView, reflProj, virtual.position());
         // Visible-section set for the VIRTUAL frustum (else sections pop as the MAIN view moves/turns).
         ((LevelRendererAccessor) mc.levelRenderer).mirror$applyFrustum(virtual.getCullFrustum());
@@ -434,7 +486,7 @@ public final class MirrorRenderer {
         // The mirror's OWN block no longer needs clipping here - it's drawn by a block-entity renderer that
         // skips the reflection pass entirely (MirrorBlockEntityRenderer), so it's never in this FBO to begin with.
         // Bend reflProj (built above, with the generous far) into the oblique near-plane clip at the mirror plane.
-        Matrix4f oblique = obliqueProjection(reflProj, cam.viewRotationMatrix, plane.normal(), plane.center(), virtual.position());
+        Matrix4f oblique = obliqueProjection(reflProj, cam.viewRotationMatrix, plane.normal(), plane.center(), virtual.position(), zZeroToOne);
         cam.projectionMatrix.set(oblique);
         GpuBufferSlice savedProj = RenderSystem.getProjectionMatrixBuffer();
         ProjectionType savedType = RenderSystem.getProjectionType();
@@ -483,8 +535,15 @@ public final class MirrorRenderer {
         return new Reflected(virtual, fboViewRot, oblique, fbo);
     }
 
-    /** Mirror cells facing toward {@code eye}, grouped by plane; the parent plane is excluded. */
-    private static Map<Long, List<MirrorSurface>> visibleGroups(Vec3 eye, long excludeKey) {
+    /**
+     * Mirror cells that can actually appear inside {@code parent}'s reflection, grouped by plane: facing
+     * toward {@code eye} (the virtual camera), in FRONT of the parent's plane (anything behind it is
+     * removed by the oblique near-plane clip, so rendering it would only waste recursion budget), still
+     * present in the world (the cache refreshes every {@link #RESCAN_INTERVAL} frames, so a broken mirror
+     * would otherwise keep reflecting inside other mirrors), and not the parent's own plane.
+     */
+    private static Map<Long, List<MirrorSurface>> visibleGroups(Level level, Vec3 eye, MirrorSurface parent) {
+        long excludeKey = planeKey(parent);
         Map<Long, List<MirrorSurface>> g = new LinkedHashMap<>();
         for (MirrorSurface m : cached) {
             long k = planeKey(m);
@@ -493,6 +552,13 @@ public final class MirrorRenderer {
             }
             if (eye.subtract(m.center()).dot(m.normal()) <= 0.0) {
                 continue; // faces away from this viewer
+            }
+            if (m.center().subtract(parent.center()).dot(parent.normal()) <= 0.0) {
+                continue; // behind the parent's plane - the oblique clip cuts it out of this reflection
+            }
+            BlockState bs = level.getBlockState(m.pos());
+            if (!(bs.getBlock() instanceof MirrorBlock) || bs.getValue(MirrorBlock.FACING) != m.facing()) {
+                continue; // block removed/replaced since the last scan - don't render a ghost reflection
             }
             g.computeIfAbsent(k, key -> new ArrayList<>()).add(m);
         }
@@ -571,8 +637,9 @@ public final class MirrorRenderer {
             }
             ubo = RenderSystem.getDevice().createBuffer(() -> "mirror_proj_ubo", GpuBuffer.USAGE_UNIFORM, b.get());
         }
-        // With a depthView: depth-test (LEQUAL) so the surface is occluded by closer geometry. Without one
-        // (nested composite onto a reflection FBO, whose depth the framegraph discarded): draw unconditionally.
+        // Depth-test (no write) so the surface is occluded by closer geometry: the top level tests against
+        // the main target's captured scene depth, a nested composite against the parent level's captured
+        // depth (the framegraph discards each FBO's live depth once its render resolves).
         CommandEncoder enc = RenderSystem.getDevice().createCommandEncoder();
         try (ubo; RenderPass pass = depthView != null
                 ? enc.createRenderPass(() -> "mirror_composite", targetColor, OptionalInt.empty(),
@@ -607,18 +674,30 @@ public final class MirrorRenderer {
             c.add(l).add(d),
         };
         float minX = Float.MAX_VALUE, minY = Float.MAX_VALUE, maxX = -Float.MAX_VALUE, maxY = -Float.MAX_VALUE;
+        boolean anyInFront = false, anyBehind = false;
         for (Vec3 corner : corners) {
             Vector4f v = new Vector4f((float) (corner.x - camPos.x), (float) (corner.y - camPos.y),
                 (float) (corner.z - camPos.z), 1.0f);
             view.transform(v);
             proj.transform(v);
             if (v.w <= 1e-4f) {
-                return null;
+                anyBehind = true; // this corner is behind the camera - its projection is meaningless
+                continue;
             }
+            anyInFront = true;
             float sx = (v.x / v.w * 0.5f + 0.5f) * w;
             float sy = (v.y / v.w * 0.5f + 0.5f) * h;
             minX = Math.min(minX, sx); maxX = Math.max(maxX, sx);
             minY = Math.min(minY, sy); maxY = Math.max(maxY, sy);
+        }
+        if (!anyInFront) {
+            return null; // fully behind the camera
+        }
+        if (anyBehind) {
+            // The quad crosses the camera plane (walking close past a mirror's edge): the bbox of the
+            // remaining corners is unreliable, so conservatively call it fully visible rather than let the
+            // whole plane pop out of existence while most of it is still on screen.
+            return new int[]{0, 0, w, h};
         }
         int x = Math.max(0, (int) Math.floor(minX));
         int y = Math.max(0, (int) Math.floor(minY));
@@ -663,11 +742,15 @@ public final class MirrorRenderer {
                     out.add(MirrorSurface.single(p, state.getValue(MirrorBlock.FACING),
                         state.getValue(MirrorBlock.UP), state.getValue(MirrorBlock.DOWN),
                         state.getValue(MirrorBlock.LEFT), state.getValue(MirrorBlock.RIGHT)));
-                    if (out.size() >= MAX_MIRRORS) {
-                        return out;
-                    }
                 }
             }
+        }
+        if (out.size() > MAX_MIRRORS) {
+            // Keep the NEAREST cells, not whichever the chunk scan met first: the scan order shifts with
+            // the camera's chunk, so a first-met cap reshuffles the survivors (and can keep only PART of a
+            // merged plane) every rescan - distant mirrors pop in and out in mirror-dense worlds.
+            out.sort(java.util.Comparator.comparingDouble(m -> m.center().distanceToSqr(camPos)));
+            out = new ArrayList<>(out.subList(0, MAX_MIRRORS));
         }
         return out;
     }
