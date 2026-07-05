@@ -19,10 +19,6 @@
         "north": {
           "texture": "#frame"
         },
-        "south": {
-          "texture": "#frame",
-          "cullface": "south"
-        },
         "east": {
           "texture": "#frame"
         },

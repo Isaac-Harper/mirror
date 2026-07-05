@@ -1,7 +1,8 @@
 {
-  "comment": "Glass backing. Only the FRONT (north) face is drawn - it's the reflective surface seen through the frame opening, and the reflection quad composites over it. The side/back faces are omitted: they sit at the cell edges coplanar with the proud frame bars' faces and z-fight (silvery vs oak) when viewed edge-on.",
+  "comment": "Glass backing. The FRONT (north) face is the reflective surface seen through the frame opening; the reflection quad composites over it. The BACK (south) face is a full oak panel at the cell's rear plane - it is the only geometry drawn there (the frame pieces omit their south faces to defer to it), so nothing z-fights. The side faces stay omitted: they sit at the cell edges coplanar with the proud frame bars' faces and z-fight (silvery vs oak) when viewed edge-on.",
   "textures": {
     "glass": "mirror:block/mirror_glass",
+    "frame": "minecraft:block/oak_planks",
     "particle": "minecraft:block/oak_planks"
   },
   "elements": [
@@ -9,7 +10,8 @@
       "from": [0, 0, 14],
       "to": [16, 16, 16],
       "faces": {
-        "north": { "texture": "#glass" }
+        "north": { "texture": "#glass" },
+        "south": { "texture": "#frame", "cullface": "south" }
       }
     }
   ]
