@@ -9,9 +9,9 @@ import com.mojang.blaze3d.pipeline.TextureTarget;
  * {@code LevelRenderer.render} draws the reflected world there instead of the main framebuffer.
  *
  * <p>Recursive (mirror-in-mirror) reflections need one buffer per depth level: level 1 holds a
- * mirror's reflected world; level 2 holds the reflection seen *inside* level 1 and is composited
- * onto level 1 before level 1 is composited onto the screen. {@link #target} is repointed at the
- * level currently being rendered.
+ * mirror's reflected world; each deeper level holds the reflection seen *inside* the level above it
+ * and is composited onto that level before it is composited upward. {@link #target} is repointed at
+ * the level currently being rendered.
  */
 public final class MirrorFbo {
     private MirrorFbo() {}
@@ -28,22 +28,37 @@ public final class MirrorFbo {
      */
     public static TextureTarget sceneDepth;
 
-    private static TextureTarget level1;
-    private static TextureTarget level2;
+    /** One reflection buffer per recursion level (index = depth - 1), grown on demand and reused per frame. */
+    private static TextureTarget[] levels = new TextureTarget[0];
 
     public static TextureTarget getOrCreateSceneDepth(int width, int height) {
         sceneDepth = ensure(sceneDepth, "mirror_scene_depth", width, height);
         return sceneDepth;
     }
 
-    /** The reflection buffer for the given recursion depth (1 or 2), sized to the screen. */
+    /** The reflection buffer for the given recursion depth (1-based), sized to the screen. Each level keeps
+     *  its own persistent target because depth d is composited onto depth d-1 before d-1 is done with. */
     public static TextureTarget level(int depth, int width, int height) {
-        if (depth <= 1) {
-            level1 = ensure(level1, "mirror_reflection_l1", width, height);
-            return level1;
+        int idx = Math.max(1, depth) - 1;
+        if (idx >= levels.length) {
+            levels = java.util.Arrays.copyOf(levels, idx + 1);
         }
-        level2 = ensure(level2, "mirror_reflection_l2", width, height);
-        return level2;
+        levels[idx] = ensure(levels[idx], "mirror_reflection_l" + (idx + 1), width, height);
+        return levels[idx];
+    }
+
+    /** Free the buffers of levels beyond {@code maxLevels}, so lowering the recursion depth in the config
+     *  releases the VRAM those deeper levels held instead of keeping it until the game exits. */
+    public static void trim(int maxLevels) {
+        if (levels.length <= maxLevels) {
+            return;
+        }
+        for (int i = maxLevels; i < levels.length; i++) {
+            if (levels[i] != null) {
+                levels[i].destroyBuffers();
+            }
+        }
+        levels = java.util.Arrays.copyOf(levels, maxLevels);
     }
 
     private static TextureTarget ensure(TextureTarget t, String name, int width, int height) {

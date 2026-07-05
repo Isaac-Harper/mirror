@@ -26,9 +26,9 @@ public final class MirrorConfig {
 
     // Defaults match the values dialled in during development. Ranges are enforced by clamp() + the GUI sliders.
     public int maxReflections = 6;          // simultaneous reflection planes rendered (nearest-first)
-    public int recursionDepth = 2;          // 1 = no recursion; 2 = one mirror-in-mirror bounce
+    public int recursionDepth = 3;          // 1 = no recursion; N = N-1 mirror-in-mirror bounces (a hall of mirrors)
     public int nestedPerParent = 2;         // nested planes reflected inside one reflection
-    public int maxRenderPasses = 10;        // hard cap on full world re-renders per frame
+    public int maxRenderPasses = 12;        // hard cap on full world re-renders per frame
     public int reflectionDistanceChunks = 0; // reflection far/fog reach; 0 = follow the render distance
     public int fogStartBlocks = 32;         // reflection stays crisp out to here, then fades to fog
 
@@ -70,12 +70,12 @@ public final class MirrorConfig {
     }
 
     public MirrorConfig clamp() {
-        maxReflections = Math.clamp(maxReflections, 1, 8);
-        recursionDepth = Math.clamp(recursionDepth, 1, 2);
-        nestedPerParent = Math.clamp(nestedPerParent, 0, 4);
-        maxRenderPasses = Math.clamp(maxRenderPasses, 1, 20);
-        reflectionDistanceChunks = Math.clamp(reflectionDistanceChunks, 0, 32);
-        fogStartBlocks = Math.clamp(fogStartBlocks, 0, 256);
+        maxReflections = Math.clamp(maxReflections, 1, 16);
+        recursionDepth = Math.clamp(recursionDepth, 1, 8);
+        nestedPerParent = Math.clamp(nestedPerParent, 0, 8);
+        maxRenderPasses = Math.clamp(maxRenderPasses, 1, 128);
+        reflectionDistanceChunks = Math.clamp(reflectionDistanceChunks, 0, 64);
+        fogStartBlocks = Math.clamp(fogStartBlocks, 0, 512);
         return this;
     }
 
