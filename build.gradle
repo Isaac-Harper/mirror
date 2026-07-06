@@ -78,7 +78,9 @@ publishMods {
     type = me.modmuss50.mpp.ReleaseType.STABLE
     displayName = "Mirror ${project.mod_version} (MC ${project.minecraft_version})"
     modLoaders.add("fabric")
-    changelog = "See the project page for the change list."
+    // The Modrinth changelog is this mod_version's "## <version>" section of CHANGELOG.md.
+    def notes = (file('CHANGELOG.md').text =~ /(?s)## \Q${project.mod_version}\E\s*\n(.*?)(?=\n## |\z)/)
+    changelog = notes.find() ? notes.group(1).trim() : "See the project page for the change list."
     dryRun = !providers.environmentVariable("MODRINTH_TOKEN").isPresent()
 
     if (project.findProperty("modrinth_id")) {
