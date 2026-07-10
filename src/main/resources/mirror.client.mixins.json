@@ -1,18 +1,21 @@
 {
   "required": true,
-  "minVersion": "0.8",
+  "minVersion": "0.8.7",
   "package": "io.monogram.mirror.client.mixin",
   "compatibilityLevel": "JAVA_25",
   "client": [
     "CameraInvoker",
+    "CloudRendererAccessor",
     "FrustumMixin",
     "GameRendererAccessor",
     "GameRendererMixin",
     "GameRendererTargetMixin",
     "LevelExtractorAccessor",
+    "LevelRendererAccessor",
     "LevelRendererCloudMixin",
     "LevelRendererMainPassMixin",
     "SectionOcclusionGraphMixin",
+    "SkyRendererAccessor",
     "SkyRendererMixin",
     "ViewAreaMixin"
   ],

@@ -12,10 +12,14 @@ import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.EntityBlock;
 import net.minecraft.world.level.block.HorizontalDirectionalBlock;
 import net.minecraft.world.level.block.RenderShape;
+import net.minecraft.world.level.block.SimpleWaterloggedBlock;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.StateDefinition;
+import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.level.block.state.properties.BooleanProperty;
+import net.minecraft.world.level.material.FluidState;
+import net.minecraft.world.level.material.Fluids;
 import net.minecraft.world.phys.shapes.CollisionContext;
 import net.minecraft.world.phys.shapes.VoxelShape;
 import org.jetbrains.annotations.Nullable;
@@ -31,9 +35,10 @@ import org.jetbrains.annotations.Nullable;
  * edges connect but the diagonal is empty - the concave corner of an L - without filling a true interior
  * corner (a 2x2 centre, where the diagonal IS a mirror).
  */
-public class MirrorBlock extends HorizontalDirectionalBlock implements EntityBlock {
+public class MirrorBlock extends HorizontalDirectionalBlock implements EntityBlock, SimpleWaterloggedBlock {
     public static final MapCodec<MirrorBlock> CODEC = simpleCodec(MirrorBlock::new);
 
+    public static final BooleanProperty WATERLOGGED = BlockStateProperties.WATERLOGGED;
     public static final BooleanProperty UP = BooleanProperty.create("up");
     public static final BooleanProperty DOWN = BooleanProperty.create("down");
     public static final BooleanProperty LEFT = BooleanProperty.create("left");
@@ -54,7 +59,8 @@ public class MirrorBlock extends HorizontalDirectionalBlock implements EntityBlo
         registerDefaultState(stateDefinition.any()
             .setValue(FACING, Direction.NORTH)
             .setValue(UP, false).setValue(DOWN, false).setValue(LEFT, false).setValue(RIGHT, false)
-            .setValue(UL, false).setValue(UR, false).setValue(DL, false).setValue(DR, false));
+            .setValue(UL, false).setValue(UR, false).setValue(DL, false).setValue(DR, false)
+            .setValue(WATERLOGGED, false));
     }
 
     @Override
@@ -80,23 +86,34 @@ public class MirrorBlock extends HorizontalDirectionalBlock implements EntityBlo
 
     @Override
     protected void createBlockStateDefinition(StateDefinition.Builder<Block, BlockState> builder) {
-        builder.add(FACING, UP, DOWN, LEFT, RIGHT, UL, UR, DL, DR);
+        builder.add(FACING, UP, DOWN, LEFT, RIGHT, UL, UR, DL, DR, WATERLOGGED);
     }
 
     @Override
     @Nullable
     public BlockState getStateForPlacement(BlockPlaceContext ctx) {
         Direction facing = ctx.getHorizontalDirection().getOpposite();
-        return withConnections(defaultBlockState().setValue(FACING, facing), ctx.getLevel(), ctx.getClickedPos());
+        boolean water = ctx.getLevel().getFluidState(ctx.getClickedPos()).getType() == Fluids.WATER;
+        return withConnections(defaultBlockState().setValue(FACING, facing).setValue(WATERLOGGED, water),
+            ctx.getLevel(), ctx.getClickedPos());
     }
 
     @Override
     protected BlockState updateShape(BlockState state, LevelReader level, ScheduledTickAccess tick,
             BlockPos pos, Direction direction, BlockPos neighborPos, BlockState neighborState,
             RandomSource random) {
+        // The panel is thin like a pane, so it can share its block with water.
+        if (state.getValue(WATERLOGGED)) {
+            tick.scheduleTick(pos, Fluids.WATER, Fluids.WATER.getTickDelay(level));
+        }
         // Recompute all eight connections from the world. A single in-plane neighbour change can flip an
         // edge AND a diagonal, so it's simplest (and robust) to re-read the whole neighbourhood.
         return withConnections(state, level, pos);
+    }
+
+    @Override
+    protected FluidState getFluidState(BlockState state) {
+        return state.getValue(WATERLOGGED) ? Fluids.WATER.getSource(false) : super.getFluidState(state);
     }
 
     @Override

@@ -31,6 +31,7 @@ public final class MirrorConfig {
     public int maxRenderPasses = 12;        // hard cap on full world re-renders per frame
     public int reflectionDistanceChunks = 0; // reflection far/fog reach; 0 = follow the render distance
     public int fogStartBlocks = 32;         // reflection stays crisp out to here, then fades to fog
+    public float resolutionScale = 1.0f;    // reflection FBO size as a fraction of the screen (cheaper below 1)
 
     public static MirrorConfig get() {
         if (instance == null) {
@@ -51,6 +52,15 @@ public final class MirrorConfig {
             }
         } catch (Exception e) {
             LOGGER.warn("[mirror] couldn't read config, using defaults", e);
+            // Don't destroy a hand-edited file over one JSON typo: set it aside so the user can repair
+            // it, then write the defaults to a fresh file.
+            try {
+                Files.move(PATH, PATH.resolveSibling("mirror.json.broken"),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                LOGGER.warn("[mirror] moved the unreadable config to mirror.json.broken");
+            } catch (Exception moveError) {
+                LOGGER.warn("[mirror] couldn't set the unreadable config aside", moveError);
+            }
         }
         MirrorConfig c = new MirrorConfig();
         c.save();
@@ -76,6 +86,7 @@ public final class MirrorConfig {
         maxRenderPasses = Math.clamp(maxRenderPasses, 1, 128);
         reflectionDistanceChunks = Math.clamp(reflectionDistanceChunks, 0, 64);
         fogStartBlocks = Math.clamp(fogStartBlocks, 0, 512);
+        resolutionScale = Math.clamp(resolutionScale, 0.25f, 1.0f);
         return this;
     }
 

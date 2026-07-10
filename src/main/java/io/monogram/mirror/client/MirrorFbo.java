@@ -1,7 +1,10 @@
 package io.monogram.mirror.client;
 
 import com.mojang.blaze3d.GpuFormat;
+import com.mojang.blaze3d.pipeline.RenderTarget;
 import com.mojang.blaze3d.pipeline.TextureTarget;
+import com.mojang.blaze3d.systems.RenderSystem;
+import com.mojang.blaze3d.textures.GpuTexture;
 
 /**
  * Offscreen render targets the reflection is drawn into. While {@link #redirect} is true,
@@ -16,24 +19,56 @@ import com.mojang.blaze3d.pipeline.TextureTarget;
 public final class MirrorFbo {
     private MirrorFbo() {}
 
-    /** The buffer the world render is currently being redirected into (level 1 or level 2). */
+    /** The buffer the world render is currently being redirected into (level 1 or level 2). Volatile
+     *  because the {@code mainRenderTarget()} redirect is public API another mod could hit off-thread;
+     *  a stale {@code true} there would hand out a mod-owned FBO mid-teardown. */
+    public static volatile boolean redirect = false;
     public static TextureTarget target;
-    public static boolean redirect = false;
 
     /**
      * A copy of the main scene's depth, taken at the TAIL of the framegraph main pass (LevelRendererMainPassMixin)
      * while the depth is still live - by the time renderAll's composite runs (after the framegraph) the main
      * target's depth is gone, so the top-level composite depth-tests against this copy to stay occluded behind
-     * blocks and walls.
+     * blocks and walls. A bare depth texture (not a TextureTarget): only the depth is ever copied in or out,
+     * so a colour attachment would be dead VRAM (a full screen's worth at 4K).
      */
-    public static TextureTarget sceneDepth;
+    public static GpuTexture sceneDepth;
 
     /** One reflection buffer per recursion level (index = depth - 1), grown on demand and reused per frame. */
     private static TextureTarget[] levels = new TextureTarget[0];
 
-    public static TextureTarget getOrCreateSceneDepth(int width, int height) {
-        sceneDepth = ensure(sceneDepth, "mirror_scene_depth", width, height);
-        return sceneDepth;
+    /** Snapshot {@code main}'s depth into {@link #sceneDepth}, (re)creating it at {@code main}'s size. */
+    public static void captureSceneDepth(RenderTarget main) {
+        if (sceneDepth == null || sceneDepth.getWidth(0) != main.width || sceneDepth.getHeight(0) != main.height) {
+            if (sceneDepth != null) {
+                sceneDepth.close();
+            }
+            // Same format/usage as RenderTarget's own depth texture, so the copies are format-compatible.
+            sceneDepth = RenderSystem.getDevice().createTexture(() -> "mirror_scene_depth",
+                GpuTexture.USAGE_COPY_DST | GpuTexture.USAGE_COPY_SRC
+                    | GpuTexture.USAGE_TEXTURE_BINDING | GpuTexture.USAGE_RENDER_ATTACHMENT,
+                GpuFormat.D32_FLOAT, main.width, main.height, 1, 1);
+        }
+        RenderSystem.getDevice().createCommandEncoder().copyTextureToTexture(
+            main.getDepthTexture(), sceneDepth, 0, 0, 0, 0, 0, main.width, main.height);
+    }
+
+    /** Copy the captured scene depth back into {@code main}'s depth (the hand-depth seed). No-op unless
+     *  the sizes match - right after a window resize the snapshot can be one frame stale. */
+    public static void seedDepthInto(RenderTarget main) {
+        if (sceneDepth == null || sceneDepth.getWidth(0) != main.width || sceneDepth.getHeight(0) != main.height) {
+            return;
+        }
+        RenderSystem.getDevice().createCommandEncoder().copyTextureToTexture(
+            sceneDepth, main.getDepthTexture(), 0, 0, 0, 0, 0, main.width, main.height);
+    }
+
+    /** Drop the captured scene depth (dimension change: the old world's depth must not seed the new one). */
+    public static void discardSceneDepth() {
+        if (sceneDepth != null) {
+            sceneDepth.close();
+            sceneDepth = null;
+        }
     }
 
     /** The reflection buffer for the given recursion depth (1-based), sized to the screen. Each level keeps
@@ -59,6 +94,13 @@ public final class MirrorFbo {
             }
         }
         levels = java.util.Arrays.copyOf(levels, maxLevels);
+    }
+
+    /** Free every target (disconnect: several screen-sized buffers should not sit in VRAM through the
+     *  menus). Everything is recreated on demand the next time a mirror renders. */
+    public static void releaseAll() {
+        trim(0);
+        discardSceneDepth();
     }
 
     private static TextureTarget ensure(TextureTarget t, String name, int width, int height) {

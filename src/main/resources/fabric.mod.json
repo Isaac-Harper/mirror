@@ -6,6 +6,11 @@
   "description": "Native planar-reflection mirror blocks for Minecraft 26.2 (Fabric). Core has no hard dependencies; optional in-game settings via Mod Menu + Cloth Config.",
   "authors": ["Isaac Harper"],
   "license": "MIT",
+  "icon": "assets/mirror/icon.png",
+  "contact": {
+    "sources": "https://github.com/Isaac-Harper/mirror",
+    "issues": "https://github.com/Isaac-Harper/mirror/issues"
+  },
   "environment": "*",
   "entrypoints": {
     "main": ["io.monogram.mirror.MirrorMod"],
@@ -24,5 +29,9 @@
   "suggests": {
     "modmenu": "*",
     "cloth-config": "*"
+  },
+  "breaks": {
+    "sodium": "*",
+    "iris": "*"
   }
 }

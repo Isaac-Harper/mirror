@@ -8,19 +8,22 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
- * Skips the cloud pass while a reflection is being rendered. {@code CloudRenderer} carries cross-frame
- * state - {@code prevRelativeCameraPos}/{@code prevCell*} plus its {@code ubo}/{@code utb} ring buffers.
- * The reflection re-runs {@code renderLevel} (and thus the cloud pass) from the VIRTUAL camera, which
- * overwrites that "previous camera" memo with the reflection camera's position and rotates the ring an
- * extra time - so the MAIN view's clouds jitter/shake the next frame. Clouds add nothing to a reflection
- * that fogs out at {@code REFLECTION_FOG_END} blocks, so we drop the pass entirely during the reflection
- * (mirrors the existing "no weather in reflections" decision).
+ * Guards the cloud pass during reflection passes. {@code CloudRenderer} carries cross-frame state -
+ * {@code prevRelativeCameraPos}/{@code prevCell*} plus its {@code ubo}/{@code utb} ring buffers - so
+ * re-running it for the VIRTUAL camera overwrites the "previous camera" memo and rotates the rings an
+ * extra time, making the MAIN view's clouds jitter the next frame.
+ *
+ * <p>While MirrorRenderer has swapped in its dedicated reflection {@code CloudRenderer} (own memos, own
+ * rings, shared texture - see {@link LevelRendererAccessor}), the pass is ALLOWED so the reflection gets
+ * real clouds; without clouds a mirror showing clear sky reads as a hole in the wall. Any reflection
+ * pass without the swap in place (only the frame's first pass renders clouds, bounding the cost) is
+ * cancelled as before.
  */
 @Mixin(LevelRenderer.class)
 public class LevelRendererCloudMixin {
     @Inject(method = "addCloudsPass", at = @At("HEAD"), cancellable = true)
-    private void mirror$skipCloudsInReflection(CallbackInfo ci) {
-        if (MirrorRenderer.isRendering()) {
+    private void mirror$guardCloudsInReflection(CallbackInfo ci) {
+        if (MirrorRenderer.isRendering() && !MirrorRenderer.isCloudsRedirected()) {
             ci.cancel();
         }
     }

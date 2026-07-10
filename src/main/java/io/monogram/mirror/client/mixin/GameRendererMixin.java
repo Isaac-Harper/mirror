@@ -38,7 +38,7 @@ public class GameRendererMixin {
         }
         RenderTarget main = ((GameRenderer) (Object) this).mainRenderTarget();
         if (main != null) {
-            main.copyDepthFrom(MirrorFbo.sceneDepth);
+            MirrorFbo.seedDepthInto(main); // no-op on a size mismatch (one-frame-stale snapshot after a resize)
         }
     }
 

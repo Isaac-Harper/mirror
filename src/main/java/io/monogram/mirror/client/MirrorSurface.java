@@ -18,8 +18,10 @@ public record MirrorSurface(BlockPos pos, Direction facing, Vec3 center, Vec3 no
     public static final double FRAME = 2.0 / 16.0;
     /** Glass-panel depth: the framed panel hugs the back of the cell (against the wall), this deep. */
     public static final double DEPTH = 2.0 / 16.0;
-    /** Glass plane offset from block centre along the normal: front face of the back-mounted panel. */
-    private static final double GLASS_OFFSET = -(0.5 - DEPTH);
+    /** Glass plane offset from block centre along the normal: front face of the back-mounted panel.
+     *  Package-visible so MirrorRenderer can compute a plane key from a bare pos/facing without
+     *  building a surface (it runs per mirror block entity per reflection pass). */
+    static final double GLASS_OFFSET = -(0.5 - DEPTH);
     /**
      * Half-extent of a framed edge's glass: inset from the 0.5 cell boundary by exactly the frame width,
      * so the reflection fills the frame opening edge-to-edge. (The earlier corner z-fighting was the glass

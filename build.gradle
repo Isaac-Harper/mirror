@@ -68,6 +68,12 @@ processResources {
     }
 }
 
+// The mcfunctions are dev/demo tooling with destructive fills at hardcoded coordinates; keep them out of
+// the shipped jar. Dev runs (runClient/runTestWorld) use processed resources, not the jar, so they still work.
+jar {
+    exclude("data/mirror/function/**")
+}
+
 // Modrinth publishing via the Mod Publish Plugin, using the same MODRINTH_TOKEN env var as the other mods.
 // Without that token (local runs) it dry-runs: the config is validated and the jar built, nothing uploads.
 // The Modrinth listing must exist first; put its id in gradle.properties as `modrinth_id`, then run

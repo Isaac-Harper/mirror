@@ -15,16 +15,23 @@ void main() {
     // reflection texels and a single tap shimmers/aliases the reflected detail. fwidth(uv) is this
     // fragment's texture footprint (uv change across one pixel); box-average a 3x3 grid of LINEAR taps
     // spanning that footprint (+/-0.5*fwidth, 0.5*fwidth spacing), anisotropic via the per-axis fwidth
-    // so it also handles grazing angles. Close up fwidth is sub-texel, the taps collapse onto one spot,
-    // and the reflection stays sharp. (Manual because Blaze3D exposes no mipmap generation.)
+    // so it also handles grazing angles. (Manual because Blaze3D exposes no mipmap generation.)
     vec2 tap = fwidth(uv) * 0.5;
-    vec3 c = vec3(0.0);
-    for (int i = -1; i <= 1; i++) {
-        for (int j = -1; j <= 1; j++) {
-            c += texture(InSampler, uv + vec2(i, j) * tap).rgb;
+    vec2 texel = 1.0 / vec2(textureSize(InSampler, 0));
+    vec3 c;
+    if (all(lessThan(tap, texel))) {
+        // Sub-texel footprint (near/full-screen mirrors): the 3x3 taps would all land inside one texel
+        // and average to the same value, so take one tap and skip 8 samples of bandwidth.
+        c = texture(InSampler, uv).rgb;
+    } else {
+        c = vec3(0.0);
+        for (int i = -1; i <= 1; i++) {
+            for (int j = -1; j <= 1; j++) {
+                c += texture(InSampler, uv + vec2(i, j) * tap).rgb;
+            }
         }
+        c /= 9.0;
     }
-    c /= 9.0;
 
     // Opaque: occlusion by closer geometry is the depth test's job, not alpha. The sky/horizon pass
     // leaves alpha~0 in a band in the reflection FBO; honoring it would blend in the world behind the

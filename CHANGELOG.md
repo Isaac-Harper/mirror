@@ -2,6 +2,17 @@
 
 Jar versions carry the Minecraft version as build metadata (for example `0.1.2+26.2`); this file tracks the mod version for the 26.2 line (branch `main`). The `publishMods` task publishes the matching `## <version>` section below as the Modrinth changelog.
 
+## 0.2.0
+
+- Reflections now show the real sky: the sky gradient, sun, moon, stars, and clouds, all matching the time of day. Mirrors used to show a flat fog colour where the sky belonged, which looked orange at dawn and dusk.
+- Mirrors are now waterloggable, so placing one underwater no longer leaves an air pocket.
+- New "Reflection resolution" setting renders reflections below screen resolution for a large performance gain with little visible difference. Very small on-screen mirrors are now skipped entirely.
+- The mirror recipe now shows up in the recipe book once you have the ingredients.
+- Reflection memory is freed when you leave a world, and the mirror pass costs nothing in worlds without mirrors.
+- The mod now declares itself incompatible with Sodium and Iris, which replace the renderer this mod hooks into.
+- The mod icon and issue links now appear in Mod Menu.
+- Many stability and correctness fixes: mirrors no longer corrupt the sky in the End, the view no longer stalls if a reflection errors mid-frame, and reflections restore the main view cleanly.
+
 ## 0.1.2
 
 - The mirror has a solid oak back panel instead of a see-through frame when viewed from behind.
