@@ -625,6 +625,11 @@ public final class MirrorRenderer {
             // Inside the guard: prepareCullFrustum can reach offsetToFullyIncludeCameraCube, which hangs
             // on a virtual frustum unless FrustumMixin (armed by virtualCull) short-circuits it.
             inv.mirror$prepareCullFrustum(vView, reflProj, virtual.position());
+            // This per-camera extract is also what makes the mod work under Sodium: Sodium culls terrain
+            // from inside LevelExtractor.extract (its cullTerrain hook calls setupTerrain for the camera
+            // being extracted), so extracting for the virtual camera builds Sodium's chunk list for the
+            // mirror. The end-of-frame restore extract in renderAll rebuilds it for the main camera. Keep
+            // both extracts if Sodium compatibility is to hold.
             mc.levelExtractor.extract(dt, virtual, partial);
             // extract()'s own applyFrustum is gated on the per-frame occlusion signal we suppress during the pass,
             // so the reflection's extract skips it and the section set stays on the MAIN frustum. Force the virtual

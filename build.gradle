@@ -47,6 +47,11 @@ dependencies {
     // optional `suggests`.
     implementation "com.terraformersmc:modmenu:${project.modmenu_version}"
     implementation "me.shedaniel.cloth:cloth-config-fabric:${project.cloth_version}"
+    // Sodium in the dev runtime for compatibility testing (dev-only, never shipped). The reflection
+    // pass composes with Sodium because both drive terrain culling from LevelExtractor.extract, so the
+    // mod's per-camera extract already sets up Sodium's chunk list for the mirror. Drop the matching jar
+    // in dev-mods/ (gitignored) to test against it; the build works with or without it present.
+    fileTree(dir: "dev-mods", include: "sodium-*.jar").each { runtimeOnly files(it) }
 }
 
 java {

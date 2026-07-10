@@ -31,7 +31,9 @@
     "cloth-config": "*"
   },
   "breaks": {
-    "sodium": "*",
     "iris": "*"
+  },
+  "custom": {
+    "mirror:notes": "Compatible with Sodium: the reflection re-render drives Sodium's own terrain culling through LevelExtractor.extract, so mirrors show correctly culled terrain and the main view is unaffected. Iris is not supported (it replaces the render pipeline the reflection pass re-enters)."
   }
 }

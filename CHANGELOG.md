@@ -2,6 +2,10 @@
 
 Jar versions carry the Minecraft version as build metadata (for example `0.1.2+26.2`); this file tracks the mod version for the 26.2 line (branch `main`). The `publishMods` task publishes the matching `## <version>` section below as the Modrinth changelog.
 
+## 0.2.1
+
+- Compatible with Sodium. Mirrors reflect correctly culled terrain and the main view is unaffected, because the reflection pass drives Sodium's own terrain culling. Iris is still unsupported.
+
 ## 0.2.0
 
 - Reflections now show the real sky: the sky gradient, sun, moon, stars, and clouds, all matching the time of day. Mirrors used to show a flat fog colour where the sky belonged, which looked orange at dawn and dusk.

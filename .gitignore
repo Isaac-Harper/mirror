@@ -22,3 +22,6 @@ bin/
 
 # Secrets (never commit)
 .env
+
+# Dev-only test mods (Sodium etc.) - large binaries, downloaded on demand for compatibility testing
+dev-mods/*.jar
