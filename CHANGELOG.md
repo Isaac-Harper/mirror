@@ -2,6 +2,10 @@
 
 Jar versions carry the Minecraft version as build metadata (for example `0.1.2+26.2`); this file tracks the mod version for the 26.2 line (branch `main`). The `publishMods` task publishes the matching `## <version>` section below as the Modrinth changelog.
 
+## 0.2.2
+
+- Fixed reflections under Sodium. With Sodium installed, mirrors showed the room behind them instead of a reflection; they now reflect correctly, matching vanilla. (0.2.1 claimed Sodium support but the reflections were actually broken.) Iris is still unsupported.
+
 ## 0.2.1
 
 - Compatible with Sodium. Mirrors reflect correctly culled terrain and the main view is unaffected, because the reflection pass drives Sodium's own terrain culling. Iris is still unsupported.

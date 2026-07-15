@@ -34,6 +34,6 @@
     "iris": "*"
   },
   "custom": {
-    "mirror:notes": "Compatible with Sodium: the reflection re-render drives Sodium's own terrain culling through LevelExtractor.extract, so mirrors show correctly culled terrain and the main view is unaffected. Iris is not supported (it replaces the render pipeline the reflection pass re-enters)."
+    "mirror:notes": "Compatible with Sodium: during a reflection the mod points Sodium's terrain projection at the mirror's oblique projection so Sodium draws the reflected view (not the scene behind the mirror), then restores it. Iris is not supported (it replaces the render pipeline the reflection pass re-enters)."
   }
 }

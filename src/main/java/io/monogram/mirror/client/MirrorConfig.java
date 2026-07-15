@@ -21,8 +21,13 @@ import java.nio.file.Path;
 public final class MirrorConfig {
     private static final Logger LOGGER = LoggerFactory.getLogger("mirror");
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
-    private static final Path PATH = FabricLoader.getInstance().getConfigDir().resolve("mirror.json");
     private static MirrorConfig instance;
+
+    // Resolved lazily (not a static field) so the class can load without a running Fabric Loader - the
+    // pure clamp()/defaults logic is then unit-testable off-game. The config dir is fixed for a run.
+    private static Path configPath() {
+        return FabricLoader.getInstance().getConfigDir().resolve("mirror.json");
+    }
 
     // Defaults match the values dialled in during development. Ranges are enforced by clamp() + the GUI sliders.
     public int maxReflections = 6;          // simultaneous reflection planes rendered (nearest-first)
@@ -41,9 +46,10 @@ public final class MirrorConfig {
     }
 
     private static MirrorConfig load() {
+        Path path = configPath();
         try {
-            if (Files.exists(PATH)) {
-                try (Reader r = Files.newBufferedReader(PATH)) {
+            if (Files.exists(path)) {
+                try (Reader r = Files.newBufferedReader(path)) {
                     MirrorConfig c = GSON.fromJson(r, MirrorConfig.class);
                     if (c != null) {
                         return c.clamp();
@@ -55,7 +61,7 @@ public final class MirrorConfig {
             // Don't destroy a hand-edited file over one JSON typo: set it aside so the user can repair
             // it, then write the defaults to a fresh file.
             try {
-                Files.move(PATH, PATH.resolveSibling("mirror.json.broken"),
+                Files.move(path, path.resolveSibling("mirror.json.broken"),
                     java.nio.file.StandardCopyOption.REPLACE_EXISTING);
                 LOGGER.warn("[mirror] moved the unreadable config to mirror.json.broken");
             } catch (Exception moveError) {
@@ -69,9 +75,10 @@ public final class MirrorConfig {
 
     public void save() {
         clamp();
+        Path path = configPath();
         try {
-            Files.createDirectories(PATH.getParent());
-            try (Writer w = Files.newBufferedWriter(PATH)) {
+            Files.createDirectories(path.getParent());
+            try (Writer w = Files.newBufferedWriter(path)) {
                 GSON.toJson(this, w);
             }
         } catch (Exception e) {

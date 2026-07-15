@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "id": "mirror_gametest",
+  "version": "1.0.0",
+  "name": "Mirror GameTests",
+  "description": "Dev-only companion mod that registers Mirror's in-world GameTests. Present only in the test source set (the runGametest classpath), never in the shipped jar - so the fabric-gametest entrypoint can't dangle in a normal run.",
+  "environment": "*",
+  "entrypoints": {
+    "fabric-gametest": ["io.monogram.mirror.test.MirrorGameTest"]
+  },
+  "depends": {
+    "mirror": "*"
+  }
+}

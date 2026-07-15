@@ -604,6 +604,12 @@ public final class MirrorRenderer {
         GpuBuffer savedGlobals = RenderSystem.getGlobalSettingsUniform();
         TextureTarget prevTarget = MirrorFbo.target;
         boolean prevRedirect = MirrorFbo.redirect;
+        // Sodium ignores the oblique projection the mod sets on RenderSystem/cam; it renders terrain from
+        // its OWN captured projection matrix (the main view's), which makes reflections show the scene
+        // behind the mirror. That captured matrix is a live, mutable Matrix4f - point it at the oblique for
+        // the pass and restore it after. Null when Sodium isn't present (vanilla needs no such fix).
+        Matrix4f sodiumProj = SodiumCompat.terrainProjection(mc);
+        Matrix4f savedSodiumProj = sodiumProj != null ? new Matrix4f(sodiumProj) : null;
         // The sky renderer's real target, saved before the swap (and before the try: the restore must
         // know it even if the pass throws mid-setup).
         var prevSkyRenderer = mc.levelRenderer.skyRenderer();
@@ -683,6 +689,9 @@ public final class MirrorRenderer {
             oblique.m22(zZeroToOne ? (-1.0f - oblique.m22()) : -oblique.m22());
             cam.projectionMatrix.set(oblique);
             RenderSystem.setProjectionMatrix(projBuffer().getBuffer(oblique), ProjectionType.PERSPECTIVE);
+            if (sodiumProj != null) {
+                sodiumProj.set(oblique); // make Sodium's terrain pass use the reflection projection too
+            }
 
             // Clear the FBO to the fog colour (the redirected render leaves stale garbage where geometry misses).
             // 26.2 takes a Vector4fc clear colour; force alpha 1 so the clear is opaque. Depth clears to 0.0, not
@@ -754,6 +763,9 @@ public final class MirrorRenderer {
             MirrorFbo.target = prevTarget;
             RenderSystem.setGlobalSettingsUniform(savedGlobals);
             RenderSystem.setProjectionMatrix(savedProj, savedType);
+            if (sodiumProj != null && savedSodiumProj != null) {
+                sodiumProj.set(savedSodiumProj); // hand Sodium's terrain projection back to the main view
+            }
             RenderSystem.setShaderFog(savedShaderFog); // restore the main view's fog slice (renderLevel clobbered it)
             if (pushedMv) {
                 mvStack.popMatrix();
