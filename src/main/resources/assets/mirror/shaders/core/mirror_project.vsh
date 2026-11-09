@@ -1,4 +1,5 @@
 #version 330
+#extension GL_ARB_separate_shader_objects : require
 
 // Projective-textured mirror surface. The quad is drawn in the MAIN view (CornersMain) and each point
 // is also projected through the VIRTUAL camera (CornersVirtual) to sample the reflection FBO. Both
@@ -11,12 +12,12 @@ layout(std140) uniform MirrorProj {
     vec4 CornersVirtual[4];  // mirror front-face corners relative to the virtual camera
 };
 
-out vec4 vClip;
+layout(location = 0) out vec4 vClip;
 
 const int IDX[6] = int[6](0, 1, 2, 2, 1, 3);
 
 void main() {
-    int i = IDX[gl_VertexID];
+    int i = IDX[gl_VertexIndex];
     gl_Position = MainVP * vec4(CornersMain[i].xyz, 1.0);
     // Constant depth-buffer-space bias toward the camera so the surface WINS the composite's depth test against
     // the mirror's coplanar glass block face at ANY distance. 26.2 is REVERSE-Z (near = 1, far = 0) and the

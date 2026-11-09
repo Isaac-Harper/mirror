@@ -1,6 +1,6 @@
 # Mirror
 
-Reflective mirror blocks for Minecraft 26.1 and 26.2 (Fabric). Mirrors show a live planar reflection of the world around them, rendered natively on the client with no Immersive Portals or other rendering dependency.
+Reflective mirror blocks for Minecraft 26.1, 26.2 and 26.3 (Fabric). Mirrors show a live planar reflection of the world around them, rendered natively on the client with no Immersive Portals or other rendering dependency.
 
 ## Screenshots
 
@@ -32,8 +32,8 @@ Place the mirror on a wall and look at it. Mirrors face the direction you place 
 
 ## Requirements
 
-- Minecraft 26.1.x or 26.2
-- Fabric Loader (0.18.4 or newer for 26.1, 0.19 or newer for 26.2)
+- Minecraft 26.1.x, 26.2 or 26.3
+- Fabric Loader (0.18.4 or newer for 26.1, 0.19 or newer for 26.2, 0.20 or newer for 26.3)
 - Fabric API
 - Java 25
 
@@ -44,6 +44,7 @@ In multiplayer the mod must be installed on both the server and the clients: the
 ## Versions and branches
 
 - `main` targets Minecraft 26.2.
+- `mc-26.3` targets Minecraft 26.3.
 - `mc-26.1` targets Minecraft 26.1.
 
 Each branch builds and runs against its own Minecraft version. Releases are published per version (for example `0.1.0+26.2`).

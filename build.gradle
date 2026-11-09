@@ -1,5 +1,5 @@
 plugins {
-    // Minecraft 26.2 is non-obfuscated; this is the no-remap Loom plugin.
+    // Minecraft 26.3 is non-obfuscated; this is the no-remap Loom plugin.
     id 'net.fabricmc.fabric-loom' version '1.17.11'
     // Uploads releases to Modrinth (see the publishMods block at the bottom).
     id 'me.modmuss50.mod-publish-plugin' version '1.1.0'
@@ -52,7 +52,7 @@ repositories {
 }
 
 dependencies {
-    // 26.2 is non-obfuscated: no `mappings` line; mod deps use plain `implementation`.
+    // 26.3 is non-obfuscated: no `mappings` line; mod deps use plain `implementation`.
     minecraft "com.mojang:minecraft:${project.minecraft_version}"
     implementation "net.fabricmc:fabric-loader:${project.loader_version}"
     implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
@@ -62,7 +62,7 @@ dependencies {
     // CreativeModeTabEvents (adds the mirror to a creative tab) lives in this module - same compile-time story.
     implementation "net.fabricmc.fabric-api:fabric-creative-tab-api-v1:${project.creativetab_version}"
     // Mod Menu (config button) + Cloth Config (the settings screen) for MirrorModMenu. Loaded in the dev
-    // runtime (Mod Menu 20.x for 26.2) so the settings screen is testable; fabric.mod.json lists both as
+    // runtime (Mod Menu 21.x for 26.3) so the settings screen is testable; fabric.mod.json lists both as
     // optional `suggests`.
     implementation "com.terraformersmc:modmenu:${project.modmenu_version}"
     implementation "me.shedaniel.cloth:cloth-config-fabric:${project.cloth_version}"
@@ -87,7 +87,7 @@ test {
 
 java {
     toolchain {
-        languageVersion = JavaLanguageVersion.of(25) // 26.2 requires Java 25
+        languageVersion = JavaLanguageVersion.of(25) // 26.3 requires Java 25
     }
     withSourcesJar()
 }

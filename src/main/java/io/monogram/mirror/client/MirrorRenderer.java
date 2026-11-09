@@ -1,24 +1,24 @@
 package io.monogram.mirror.client;
 
-import com.mojang.blaze3d.GpuFormat;
-import com.mojang.blaze3d.PrimitiveTopology;
+import com.mojang.renderpearl.api.GpuFormat;
+import com.mojang.renderpearl.api.pipeline.PrimitiveTopology;
 import com.mojang.blaze3d.ProjectionType;
-import com.mojang.blaze3d.buffers.GpuBuffer;
-import com.mojang.blaze3d.buffers.GpuBufferSlice;
+import com.mojang.renderpearl.api.buffers.GpuBuffer;
+import com.mojang.renderpearl.api.buffers.GpuBufferSlice;
 import com.mojang.blaze3d.buffers.Std140Builder;
-import com.mojang.blaze3d.pipeline.BindGroupLayout;
-import com.mojang.blaze3d.pipeline.ColorTargetState;
-import com.mojang.blaze3d.pipeline.DepthStencilState;
-import com.mojang.blaze3d.pipeline.RenderPipeline;
+import com.mojang.renderpearl.api.pipeline.BindGroupLayout;
+import com.mojang.renderpearl.api.pipeline.ColorTargetState;
+import com.mojang.renderpearl.api.pipeline.DepthStencilState;
+import com.mojang.renderpearl.api.pipeline.RenderPipeline;
 import com.mojang.blaze3d.pipeline.RenderTarget;
 import com.mojang.blaze3d.pipeline.TextureTarget;
-import com.mojang.blaze3d.platform.CompareOp;
-import com.mojang.blaze3d.shaders.UniformType;
-import com.mojang.blaze3d.systems.CommandEncoder;
-import com.mojang.blaze3d.systems.RenderPass;
+import com.mojang.renderpearl.api.pipeline.CompareOp;
+import com.mojang.renderpearl.api.pipeline.UniformType;
+import com.mojang.renderpearl.api.commands.CommandEncoder;
+import com.mojang.renderpearl.api.commands.RenderPass;
 import com.mojang.blaze3d.systems.RenderSystem;
-import com.mojang.blaze3d.textures.FilterMode;
-import com.mojang.blaze3d.textures.GpuTextureView;
+import com.mojang.renderpearl.api.textures.FilterMode;
+import com.mojang.renderpearl.api.textures.GpuTextureView;
 import com.mojang.blaze3d.vertex.PoseStack;
 import io.monogram.mirror.MirrorBlock;
 import io.monogram.mirror.client.mixin.CameraInvoker;
@@ -131,7 +131,7 @@ public final class MirrorRenderer {
     private static volatile boolean cloudsRedirected = false;
 
     /** True while the dedicated reflection {@link CloudRenderer} is swapped into LevelRenderer, so
-     *  LevelRendererCloudMixin lets the cloud pass run for the reflection instead of cancelling it to
+     *  CloudRendererGuardMixin lets the cloud pass run for the reflection instead of cancelling it to
      *  protect vanilla's cross-frame cloud state. */
     public static boolean isCloudsRedirected() {
         return cloudsRedirected;
@@ -220,7 +220,7 @@ public final class MirrorRenderer {
                 .withFragmentShader(Identifier.fromNamespaceAndPath("mirror", "core/mirror_project"))
                 // 26.2: samplers + uniforms are declared via a BindGroupLayout, not flat builder calls.
                 .withBindGroupLayout(BindGroupLayout.builder()
-                    .withSampler("InSampler")
+                    .withUniform("InSampler", UniformType.COMBINED_IMAGE_SAMPLER)
                     .withUniform("MirrorProj", UniformType.UNIFORM_BUFFER)
                     .build())
                 // No blending: the shader pins alpha to 1, so a blend state would be a per-pixel no-op that
@@ -342,7 +342,7 @@ public final class MirrorRenderer {
             mainProjBob.mul(bobPose.last().pose());
             // Nausea/portal distortion is ALSO folded into the level projection (rotate/scale/rotate after
             // the bob), so replicate it too or the quad slides off the mirror block while the screen warps.
-            // Same math as renderLevel's spin block, driven by the same fields.
+            // Same math as renderLevel's spin block, driven by the same angle.
             LocalPlayer player = mc.player;
             float effectScale = mc.options.screenEffectScale().get().floatValue();
             float portal = Mth.lerp(partial, player.oPortalEffectIntensity, player.portalEffectIntensity);
@@ -352,8 +352,7 @@ public final class MirrorRenderer {
                 float squeeze = 5.0f / (intensity * intensity + 5.0f) - intensity * 0.04f;
                 squeeze *= squeeze;
                 Vector3f spinAxis = new Vector3f(0.0f, Mth.SQRT_OF_TWO / 2.0f, Mth.SQRT_OF_TWO / 2.0f);
-                float spin = (gra.mirror$spinningEffectTime() + partial * gra.mirror$spinningEffectSpeed())
-                    * Mth.DEG_TO_RAD;
+                float spin = player.getSpinningEffectAngle(partial) * Mth.DEG_TO_RAD;
                 mainProjBob.rotate(spin, spinAxis);
                 mainProjBob.scale(1.0f / squeeze, 1.0f, 1.0f);
                 mainProjBob.rotate(-spin, spinAxis);
@@ -425,7 +424,6 @@ public final class MirrorRenderer {
             depthExpected = true;
             // The partial tick vanilla uses for camera extraction (tracks the camera ENTITY's tick rate,
             // which can diverge from the level's - frozen entities, dying mounts).
-            float camPartial = camera.getCameraEntityPartialTicks(dt);
             rendering = true;
             passes = 0;
             try {
@@ -465,7 +463,7 @@ public final class MirrorRenderer {
                     // extract() does NOT re-extract the camera (vanilla does that once pre-frame), so undo the
                     // last virtual camera's extractRenderState and oblique projection by hand - anything after
                     // this hook that reads cameraRenderState (the 3D debug crosshair) sees the main camera again.
-                    camera.extractRenderState(lrs.cameraRenderState, camPartial);
+                    camera.extractRenderState(lrs.cameraRenderState, dt);
                     lrs.cameraRenderState.projectionMatrix.set(mainProj);
                     // repositionCamera pointed the section dispatcher's translucency-sort origin at the last
                     // virtual camera; point it back, or async resorts queued before next frame sort for the mirror.
@@ -647,7 +645,7 @@ public final class MirrorRenderer {
             CameraRenderState cam = lrs.cameraRenderState;
             // Extract with the camera-entity partial tick (what vanilla feeds extractRenderState), else
             // entities draw relative to the main camera / sub-frame interpolation drifts.
-            virtual.extractRenderState(cam, virtual.getCameraEntityPartialTicks(dt));
+            virtual.extractRenderState(cam, dt);
             // The composite MUST sample with this exact matrix (not getViewRotationMatrix(), which can differ).
             fboViewRot = new Matrix4f(cam.viewRotationMatrix);
             // Reflection distance fog: clear out to fogStart (config, capped at fogEnd so the range can't
@@ -744,8 +742,8 @@ public final class MirrorRenderer {
             // 26.2 consolidated bookkeeping + draw into LevelRenderer.render (no precomputed section list arg).
             // It re-runs the once-per-frame chunk bookkeeping; the mixins (SectionOcclusionGraph/ViewArea) cancel
             // the parts that would corrupt the main view, gated on MirrorFbo.redirect.
-            mc.levelRenderer.render(gra.mirror$resourcePool(), dt, false, cam, cam.viewRotationMatrix,
-                terrainFog, cam.fogData.color, true);
+            mc.levelRenderer.render(gra.mirror$resourcePool(), false, cam,
+                terrainFog, cam.fogData.color, true, false);
         } finally {
             skyRedirected = false;
             // Fetch the sky renderer FRESH: if vanilla recreated it mid-pass (shouldResetSkyRenderer), the
@@ -880,10 +878,10 @@ public final class MirrorRenderer {
         try (MemoryStack stack = MemoryStack.stackPush()) {
             ByteBuffer data = Std140Builder.onStack(stack, GlobalSettingsUniform.UBO_SIZE)
                 .putIVec3(bx, by, bz)
-                .putVec3((float) (bx - camPos.x), (float) (by - camPos.y), (float) (bz - camPos.z))
-                .putVec2((float) w, (float) h)
                 .putFloat(1.0f)
+                .putVec3((float) (bx - camPos.x), (float) (by - camPos.y), (float) (bz - camPos.z))
                 .putFloat(((float) (gameTime % 24000L) + partial) / 24000.0f)
+                .putVec2((float) w, (float) h)
                 .putInt(0)  // MenuBlurRadius
                 // UseRgss=1: terrain.fsh anti-aliases its atlas minification with Rotated-Grid Super-Sampling,
                 // gated on this flag. With it 0, reflected terrain nearest-samples the atlas and the razor-sharp
@@ -944,12 +942,12 @@ public final class MirrorRenderer {
         CommandEncoder enc = RenderSystem.getDevice().createCommandEncoder();
         try (RenderPass pass = enc.createRenderPass(() -> "mirror_composite", targetColor,
                 Optional.<Vector4fc>empty(), depthView, OptionalDouble.empty())) {
-            pass.setPipeline(projectPipeline());
+            pass.setPipeline(RenderSystem.getCompiledPipeline(projectPipeline()));
             RenderSystem.bindDefaultUniforms(pass);
             // LINEAR (not NEAREST): when the mirror is distant it covers few screen pixels, so each pixel
             // minifies many FBO texels. NEAREST picks one at random and turns MC's dithered sky into
             // shimmering diagonal bands; bilinear averages them into a smooth reflection.
-            pass.bindTexture("InSampler", sampleFbo.getColorTextureView(),
+            pass.setUniform("InSampler", sampleFbo.getColorTextureView(),
                 RenderSystem.getSamplerCache().getClampToEdge(FilterMode.LINEAR));
             for (int i = 0; i < cells.size(); i++) {
                 pass.setUniform("MirrorProj", compositeUbo.slice((long) i * COMPOSITE_STRIDE, COMPOSITE_STRIDE));

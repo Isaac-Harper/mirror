@@ -1,6 +1,6 @@
 # Changelog
 
-Jar versions carry the Minecraft version as build metadata (for example `0.1.2+26.2`); this file tracks the mod version for the 26.2 line (branch `main`). The `publishMods` task publishes the matching `## <version>` section below as the Modrinth changelog.
+Jar versions carry the Minecraft version as build metadata (for example `0.1.2+26.3`); this file tracks the mod version for the 26.3 line (branch `mc-26.3`). The `publishMods` task publishes the matching `## <version>` section below as the Modrinth changelog.
 
 ## 0.2.2
 

@@ -12,7 +12,7 @@
     "GameRendererTargetMixin",
     "LevelExtractorAccessor",
     "LevelRendererAccessor",
-    "LevelRendererCloudMixin",
+    "CloudRendererGuardMixin",
     "LevelRendererMainPassMixin",
     "SectionOcclusionGraphMixin",
     "SkyRendererAccessor",

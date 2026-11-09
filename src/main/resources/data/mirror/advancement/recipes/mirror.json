@@ -23,7 +23,7 @@
     },
     "has_the_recipe": {
       "conditions": {
-        "recipe": "mirror:mirror"
+        "recipes": "mirror:mirror"
       },
       "trigger": "minecraft:recipe_unlocked"
     }

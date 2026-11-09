@@ -1,10 +1,10 @@
 package io.monogram.mirror.client;
 
-import com.mojang.blaze3d.GpuFormat;
+import com.mojang.renderpearl.api.GpuFormat;
 import com.mojang.blaze3d.pipeline.RenderTarget;
 import com.mojang.blaze3d.pipeline.TextureTarget;
 import com.mojang.blaze3d.systems.RenderSystem;
-import com.mojang.blaze3d.textures.GpuTexture;
+import com.mojang.renderpearl.api.textures.GpuTexture;
 
 /**
  * Offscreen render targets the reflection is drawn into. While {@link #redirect} is true,
@@ -106,7 +106,7 @@ public final class MirrorFbo {
     private static TextureTarget ensure(TextureTarget t, String name, int width, int height) {
         if (t == null) {
             // 26.2 requires the colour format on the ctor; RGBA8_UNORM matches the main render target.
-            return new TextureTarget(name, width, height, true, GpuFormat.RGBA8_UNORM); // true = with depth
+            return new TextureTarget(name, width, height, GpuFormat.RGBA8_UNORM, GpuFormat.D32_FLOAT);
         }
         if (t.width != width || t.height != height) {
             t.resize(width, height);

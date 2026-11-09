@@ -1,6 +1,5 @@
 package io.monogram.mirror;
 
-import com.mojang.serialization.MapCodec;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.util.RandomSource;
@@ -36,7 +35,6 @@ import org.jetbrains.annotations.Nullable;
  * corner (a 2x2 centre, where the diagonal IS a mirror).
  */
 public class MirrorBlock extends HorizontalDirectionalBlock implements EntityBlock, SimpleWaterloggedBlock {
-    public static final MapCodec<MirrorBlock> CODEC = simpleCodec(MirrorBlock::new);
 
     public static final BooleanProperty WATERLOGGED = BlockStateProperties.WATERLOGGED;
     public static final BooleanProperty UP = BooleanProperty.create("up");
@@ -61,11 +59,6 @@ public class MirrorBlock extends HorizontalDirectionalBlock implements EntityBlo
             .setValue(UP, false).setValue(DOWN, false).setValue(LEFT, false).setValue(RIGHT, false)
             .setValue(UL, false).setValue(UR, false).setValue(DL, false).setValue(DR, false)
             .setValue(WATERLOGGED, false));
-    }
-
-    @Override
-    protected MapCodec<? extends HorizontalDirectionalBlock> codec() {
-        return CODEC;
     }
 
     @Override
